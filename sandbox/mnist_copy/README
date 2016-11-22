@@ -1,0 +1,3 @@
+This is a copy of the code at /usr/local/lib/python2.7/dist-packages/tensorflow/models/image/mnist.
+
+I am modifying convolutional.py to use checkpoints, and I am running it in an on-demand AWS t2-micro instance to test what happens if I kill the instance before the model has finished training. It should be able to resume correctly.
