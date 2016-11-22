@@ -184,6 +184,13 @@ def main(argv=None):  # pylint: disable=unused-argument
   fc2_biases = tf.Variable(tf.constant(
       0.1, shape=[NUM_LABELS], dtype=data_type()))
 
+  # hanna: Adding a global_step counter, and initializing variable saver.
+  global_step = tf.Variable(0, name='global_step', trainable=False)
+  saver = tf.train.Saver()
+  ckpt_dir = './ckpt_dir'
+  if not os.path.exists(ckpt_dir):
+    os.makedirs(ckpt_dir)
+
   # We will replicate the model structure for the training subgraph, as well
   # as the evaluation subgraphs, while sharing the trainable parameters.
   def model(data, train=False):
@@ -288,7 +295,17 @@ def main(argv=None):  # pylint: disable=unused-argument
     tf.initialize_all_variables().run()
     print('Initialized!')
     # Loop through training steps.
-    for step in xrange(int(num_epochs * train_size) // BATCH_SIZE):
+    max_steps = int(num_epochs * train_size) // BATCH_SIZE
+    # hanna: Check global_step and check to restore timer.
+    ckpt = tf.train.get_checkpoint_state(ckpt_dir)
+    if ckpt and ckpt.model_checkpoint_path:
+      print(ckpt.model_checkpoint_path)
+      saver.restore(sess, ckpt.model_checkpoint_path)
+    # hanna: Start will be 0 when we first begin, and then will increment.
+    start = global_step.eval()
+    # [orginal] for step in xrange(int(num_epochs * train_size) // BATCH_SIZE):
+    print('Starting from step %d' % start)
+    for step in xrange(start, max_steps):
       # Compute the offset of the current minibatch in the data.
       # Note that we could use better randomization across epochs.
       offset = (step * BATCH_SIZE) % (train_size - BATCH_SIZE)
@@ -313,6 +330,10 @@ def main(argv=None):  # pylint: disable=unused-argument
         print('Validation error: %.1f%%' % error_rate(
             eval_in_batches(validation_data, sess), validation_labels))
         sys.stdout.flush()
+      # hanna: Update the global step assignment and save variables.
+      saver.save(sess, ckpt_dir + '/model.ckpt')
+      global_step.assign(step + 1).eval()
+        
     # Finally print the result!
     test_error = error_rate(eval_in_batches(test_data, sess), test_labels)
     print('Test error: %.1f%%' % test_error)
