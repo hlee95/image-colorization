@@ -41,278 +41,311 @@ def color_small():
 
 #color_small()
 
-sess = tf.Session()
 
+SEED = 66478  # Set to None for random seed.
 NUM_IMAGES = 2
 IMAGE_SIZE = 64
 # To parameterize the number of outputs of each layer.
 DEPTH = 64
+# The final depth should always be 2.
+FINAL_DEPTH = 2
 
-######
-# Low level feature hyperparameters: 4 convolutional layers.
-######
+def main():
+	sess = tf.Session()
+	######
+	# Low level feature hyperparameters: 4 convolutional layers.
+	######
 
-# Input is IMAGE_SIZE x IMAGE_SIZE x 1
-# Output is IMAGE_SIZE/2 x IMAGE_SIZE/2 x DEPTH
-ll1_filter_size = 3
-ll1_depth = DEPTH
-ll1_stride = 2
+	# Input is IMAGE_SIZE x IMAGE_SIZE x 1
+	# Output is IMAGE_SIZE/2 x IMAGE_SIZE/2 x DEPTH
+	ll1_filter_size = 3
+	ll1_depth = DEPTH
+	ll1_stride = 2
 
-# Output is IMAGE_SIZE/2 x IMAGE_SIZE/2 x 2*DEPTH
-ll2_filter_size = 3
-ll2_depth = 2*DEPTH
-ll2_stride = 1
+	# Output is IMAGE_SIZE/2 x IMAGE_SIZE/2 x 2*DEPTH
+	ll2_filter_size = 3
+	ll2_depth = 2*DEPTH
+	ll2_stride = 1
 
-# Output is IMAGE_SIZE/4 x IMAGE_SIZE/4 x 2*DEPTH
-ll3_filter_size = 3
-ll3_depth = 2*DEPTH
-ll3_stride = 2
+	# Output is IMAGE_SIZE/4 x IMAGE_SIZE/4 x 2*DEPTH
+	ll3_filter_size = 3
+	ll3_depth = 2*DEPTH
+	ll3_stride = 2
 
-# Output is IMAGE_SIZE/4 x IMAGE_SIZE/4 x 4*DEPTH
-ll4_filter_size = 3
-ll4_depth = 4*DEPTH
-ll4_stride = 1
+	# Output is IMAGE_SIZE/4 x IMAGE_SIZE/4 x 4*DEPTH
+	ll4_filter_size = 3
+	ll4_depth = 4*DEPTH
+	ll4_stride = 1
 
-# experiment with different values for the standard deviation
-ll1_weights = tf.Variable(tf.truncated_normal(
-                                [ll1_filter_size, ll1_filter_size, 1, ll1_depth], stddev=0.1))
-ll1_biases = tf.Variable(tf.zeros([ll1_depth]))
-ll1_feat_map_size = int(math.ceil(float(IMAGE_SIZE) / ll1_stride))
+	# experiment with different values for the standard deviation
+	ll1_weights = tf.Variable(tf.truncated_normal(
+	                                [ll1_filter_size, ll1_filter_size, 1, ll1_depth], stddev=0.1))
+	ll1_biases = tf.Variable(tf.zeros([ll1_depth]))
+	ll1_feat_map_size = int(math.ceil(float(IMAGE_SIZE) / ll1_stride))
 
-ll2_weights = tf.Variable(tf.truncated_normal(
-                                [ll2_filter_size, ll2_filter_size, ll1_depth, ll2_depth], stddev=0.1))
-ll2_biases = tf.Variable(tf.zeros([ll2_depth]))
-ll2_feat_map_size = int(math.ceil(float(ll1_feat_map_size) / ll2_stride))
+	ll2_weights = tf.Variable(tf.truncated_normal(
+	                                [ll2_filter_size, ll2_filter_size, ll1_depth, ll2_depth], stddev=0.1))
+	ll2_biases = tf.Variable(tf.zeros([ll2_depth]))
+	ll2_feat_map_size = int(math.ceil(float(ll1_feat_map_size) / ll2_stride))
 
-ll3_weights = tf.Variable(tf.truncated_normal(
-                                [ll3_filter_size, ll3_filter_size, ll2_depth, ll3_depth], stddev=0.1))
-ll3_biases = tf.Variable(tf.zeros([ll3_depth]))
-ll3_feat_map_size = int(math.ceil(float(ll2_feat_map_size) / ll3_stride))
+	ll3_weights = tf.Variable(tf.truncated_normal(
+	                                [ll3_filter_size, ll3_filter_size, ll2_depth, ll3_depth], stddev=0.1))
+	ll3_biases = tf.Variable(tf.zeros([ll3_depth]))
+	ll3_feat_map_size = int(math.ceil(float(ll2_feat_map_size) / ll3_stride))
 
-ll4_weights = tf.Variable(tf.truncated_normal(
-                                [ll4_filter_size, ll4_filter_size, ll3_depth, ll4_depth], stddev=0.1))
-ll4_biases = tf.Variable(tf.zeros([ll4_depth]))
-ll4_feat_map_size = int(math.ceil(float(ll3_feat_map_size) / ll4_stride))
+	ll4_weights = tf.Variable(tf.truncated_normal(
+	                                [ll4_filter_size, ll4_filter_size, ll3_depth, ll4_depth], stddev=0.1))
+	ll4_biases = tf.Variable(tf.zeros([ll4_depth]))
+	ll4_feat_map_size = int(math.ceil(float(ll3_feat_map_size) / ll4_stride))
 
-######
-# Global feature hyperparameters: two convolutional layers, three FC layers.
-######
+	######
+	# Global feature hyperparameters: two convolutional layers, three FC layers.
+	######
 
-# Input is IMAGE_SIZE/4 x IMAGE_SIZE/4 x 4*DEPTH
-# Output is IMAGE_SIZE/8 x IMAGE_SIZE/8 x 4*DEPTH
-g1_filter_size = 3
-g1_depth = 4*DEPTH
-g1_stride = 2
+	# Input is IMAGE_SIZE/4 x IMAGE_SIZE/4 x 4*DEPTH
+	# Output is IMAGE_SIZE/8 x IMAGE_SIZE/8 x 4*DEPTH
+	g1_filter_size = 3
+	g1_depth = 4*DEPTH
+	g1_stride = 2
 
-# Output is IMAGE_SIZE/8 x IMAGE_SIZE/8 x 4*DEPTH
-g2_filter_size = 3
-g2_depth = 4*DEPTH
-g2_stride = 1
+	# Output is IMAGE_SIZE/8 x IMAGE_SIZE/8 x 4*DEPTH
+	g2_filter_size = 3
+	g2_depth = 4*DEPTH
+	g2_stride = 1
 
-# First fully connected layer, outputs 8*DEPTH.
-g3_num_hidden = 8*DEPTH
-# Second fully connected layer.
-g4_num_hidden = 4*DEPTH
-# Third fully connected layer.
-g5_num_hidden = 2*DEPTH
+	# First fully connected layer, outputs 8*DEPTH.
+	g3_num_hidden = 8*DEPTH
+	# Second fully connected layer.
+	g4_num_hidden = 4*DEPTH
+	# Third fully connected layer.
+	g5_num_hidden = 2*DEPTH
 
-g1_weights = tf.Variable(tf.truncated_normal(
-                                [g1_filter_size, g1_filter_size, ll4_depth, g1_depth], stddev=0.1))
-g1_biases = tf.Variable(tf.zeros([g1_depth]))
-g1_feat_map_size = int(math.ceil(float(ll4_feat_map_size) / g1_stride))
+	g1_weights = tf.Variable(tf.truncated_normal(
+	                                [g1_filter_size, g1_filter_size, ll4_depth, g1_depth], stddev=0.1))
+	g1_biases = tf.Variable(tf.zeros([g1_depth]))
+	g1_feat_map_size = int(math.ceil(float(ll4_feat_map_size) / g1_stride))
 
-g2_weights = tf.Variable(tf.truncated_normal(
-                                [g2_filter_size, g2_filter_size, g1_depth, g2_depth], stddev=0.1))
-g2_biases = tf.Variable(tf.zeros([g2_depth]))
-g2_feat_map_size = int(math.ceil(float(g1_feat_map_size) / g2_stride))
+	g2_weights = tf.Variable(tf.truncated_normal(
+	                                [g2_filter_size, g2_filter_size, g1_depth, g2_depth], stddev=0.1))
+	g2_biases = tf.Variable(tf.zeros([g2_depth]))
+	g2_feat_map_size = int(math.ceil(float(g1_feat_map_size) / g2_stride))
 
-g3_weights = tf.Variable(tf.truncated_normal(
-                                [g2_feat_map_size * g2_feat_map_size * g2_depth, g3_num_hidden], stddev=0.1))
-g3_biases = tf.Variable(tf.zeros([g3_num_hidden]))
+	g3_weights = tf.Variable(tf.truncated_normal(
+	                                [g2_feat_map_size * g2_feat_map_size * g2_depth, g3_num_hidden], stddev=0.1))
+	g3_biases = tf.Variable(tf.zeros([g3_num_hidden]))
 
-g4_weights = tf.Variable(tf.truncated_normal(
-                                [g3_num_hidden, g4_num_hidden], stddev=0.1))
-g4_biases = tf.Variable(tf.zeros([g4_num_hidden]))
+	g4_weights = tf.Variable(tf.truncated_normal(
+	                                [g3_num_hidden, g4_num_hidden], stddev=0.1))
+	g4_biases = tf.Variable(tf.zeros([g4_num_hidden]))
 
-g5_weights = tf.Variable(tf.truncated_normal(
-                                [g4_num_hidden, g5_num_hidden], stddev=0.1))
-g5_biases = tf.Variable(tf.zeros([g5_num_hidden]))
+	g5_weights = tf.Variable(tf.truncated_normal(
+	                                [g4_num_hidden, g5_num_hidden], stddev=0.1))
+	g5_biases = tf.Variable(tf.zeros([g5_num_hidden]))
 
-######
-# Mid-level feature hyperparameters: two convolutional layers.
-######
+	######
+	# Mid-level feature hyperparameters: two convolutional layers.
+	######
 
-# Input is IMAGE_SIZE/4 x IMAGE_SIZE/4 x 4*DEPTH
-# Output is IMAGE_SIZE/4 x IMAGE_SIZE/4 x 4*DEPTH
-ml1_filter_size = 3
-ml1_depth = 4*DEPTH
-ml1_stride = 1
+	# Input is IMAGE_SIZE/4 x IMAGE_SIZE/4 x 4*DEPTH
+	# Output is IMAGE_SIZE/4 x IMAGE_SIZE/4 x 4*DEPTH
+	ml1_filter_size = 3
+	ml1_depth = 4*DEPTH
+	ml1_stride = 1
 
-# Output is IMAGE_SIZE/4 x IMAGE_SIZE/4 x 2*DEPTH
-ml2_filter_size = 3
-ml2_depth = 2*DEPTH
-ml2_stride = 1
+	# Output is IMAGE_SIZE/4 x IMAGE_SIZE/4 x 2*DEPTH
+	ml2_filter_size = 3
+	ml2_depth = 2*DEPTH
+	ml2_stride = 1
 
-ml1_weights = tf.Variable(tf.truncated_normal(
-                                [ml1_filter_size, ml1_filter_size, ll4_depth, ml1_depth], stddev=0.1))
-ml1_biases = tf.Variable(tf.zeros([ml1_depth]))
-ml1_feat_map_size = int(math.ceil(float(ll4_feat_map_size) / ml1_stride))
+	ml1_weights = tf.Variable(tf.truncated_normal(
+	                                [ml1_filter_size, ml1_filter_size, ll4_depth, ml1_depth], stddev=0.1))
+	ml1_biases = tf.Variable(tf.zeros([ml1_depth]))
+	ml1_feat_map_size = int(math.ceil(float(ll4_feat_map_size) / ml1_stride))
 
-ml2_weights = tf.Variable(tf.truncated_normal(
-                                [ml2_filter_size, ml2_filter_size, ml1_depth, ml2_depth], stddev=0.1))
-ml2_biases = tf.Variable(tf.zeros([ml2_depth]))
-ml2_feat_map_size = int(math.ceil(float(ml1_feat_map_size) / ml2_stride))
-print("m12 feature map size: %d" % ml2_feat_map_size)
-######
-# Colorization layer hyperparameters: one fusion layer, one convolutional layer,# one upsample, two more convolutional layers.
-# Expected output size is IMAGE_SIZE/4 x IMAGE_SIZE/4 x 2
-######
+	ml2_weights = tf.Variable(tf.truncated_normal(
+	                                [ml2_filter_size, ml2_filter_size, ml1_depth, ml2_depth], stddev=0.1))
+	ml2_biases = tf.Variable(tf.zeros([ml2_depth]))
+	ml2_feat_map_size = int(math.ceil(float(ml1_feat_map_size) / ml2_stride))
+	print("m12 feature map size: %d" % ml2_feat_map_size)
+	######
+	# Colorization layer hyperparameters: one fusion layer, one convolutional layer,# one upsample, two more convolutional layers.
+	# Expected output size is IMAGE_SIZE/4 x IMAGE_SIZE/4 x 2
+	######
 
-# Input consists of two parts:
-# global features: 2*DEPTH x 1
-# mid level features: IMAGE_SIZE/4 x IMAGE_SIZE/4 x 2*DEPTH
-# Output is IMAGE_SIZE/4 x IMAGE_SIZE/4 x 2*DEPTH
-c1_num_hidden = 2*DEPTH
-c1_filter_size = 3
-c1_stride = 1
+	# Input consists of two parts:
+	# global features: 2*DEPTH x 1
+	# mid level features: IMAGE_SIZE/4 x IMAGE_SIZE/4 x 2*DEPTH
+	# Output is IMAGE_SIZE/4 x IMAGE_SIZE/4 x 2*DEPTH
+	c1_num_hidden = 2*DEPTH
+	c1_filter_size = 3
+	c1_stride = 1
 
-# Output is IMAGE_SIZE/4 x IMAGE_SIZE/4 x DEPTH
-c2_filter_size = 3
-c2_depth = DEPTH
-c2_stride = 1
+	# Output is IMAGE_SIZE/4 x IMAGE_SIZE/4 x DEPTH
+	c2_filter_size = 3
+	c2_depth = DEPTH
+	c2_stride = 1
 
-# Output is IMAGE_SIZE/2 x IMAGE_SIZE/2 x DEPTH
-c3_upsample_factor = 2
-c3_depth = DEPTH
+	# Output is IMAGE_SIZE/2 x IMAGE_SIZE/2 x DEPTH
+	c3_upsample_factor = 2
+	c3_depth = DEPTH
 
-# Output is IMAGE_SIZE/2 x IMAGE_SIZE/2 x DEPTH/2
-c4_filter_size = 3
-c4_depth = DEPTH/2
-c4_stride = 1
+	# Output is IMAGE_SIZE/2 x IMAGE_SIZE/2 x DEPTH/2
+	c4_filter_size = 3
+	c4_depth = DEPTH/2
+	c4_stride = 1
 
-# Output is IMAGE_SIZE/2 x IMAGE_SIZE/2 x 2
-c5_filter_size = 3
-c5_depth = 2
-c5_stride = 1
+	# Output is IMAGE_SIZE/2 x IMAGE_SIZE/2 x 2
+	c5_filter_size = 3
+	c5_depth = FINAL_DEPTH
+	c5_stride = 1
 
-# Set up the weights for the fusion layer.
-# W should be IMAGE_SIZE/4 x IMAGE_SIZE/4 x 4*DEPTH x 2*DEPTH
-c1_weights = tf.Variable(tf.truncated_normal(
-                                [c1_filter_size, c1_filter_size, 2*c1_num_hidden, c1_num_hidden], stddev=0.1))
-c1_biases = tf.Variable(tf.zeros([c1_num_hidden]))
+	# Output is IMAGE_SIZE x IMAGE_SIZE x 2. Represents the chrominance.
+	# Only used for testing and producing results, not for training.
+	c6_upsample_factor = 2
+	c6_depth = FINAL_DEPTH
 
-c2_weights = tf.Variable(tf.truncated_normal(
-                                [c2_filter_size, c2_filter_size, c1_num_hidden, c2_depth], stddev=0.1))
-c2_biases = tf.Variable(tf.zeros([c2_depth]))
-c2_feat_map_size = int(math.ceil(float(ml2_feat_map_size) / c2_stride))
+	# Set up the weights for the fusion layer.
+	# W should be IMAGE_SIZE/4 x IMAGE_SIZE/4 x 4*DEPTH x 2*DEPTH
+	c1_weights = tf.Variable(tf.truncated_normal(
+	                                [c1_filter_size, c1_filter_size, 2*c1_num_hidden, c1_num_hidden], stddev=0.1))
+	c1_biases = tf.Variable(tf.zeros([c1_num_hidden]))
 
-c3_feat_map_size = c3_upsample_factor * c2_feat_map_size
+	c2_weights = tf.Variable(tf.truncated_normal(
+	                                [c2_filter_size, c2_filter_size, c1_num_hidden, c2_depth], stddev=0.1))
+	c2_biases = tf.Variable(tf.zeros([c2_depth]))
+	c2_feat_map_size = int(math.ceil(float(ml2_feat_map_size) / c2_stride))
 
-c4_weights = tf.Variable(tf.truncated_normal(
-                                [c4_filter_size, c4_filter_size, c3_depth, c4_depth], stddev=0.1))
-c4_biases = tf.Variable(tf.zeros([c4_depth]))
-c4_feat_map_size = int(math.ceil(float(c3_feat_map_size) / c4_stride))
+	c3_feat_map_size = c3_upsample_factor * c2_feat_map_size
 
-c5_weights = tf.Variable(tf.truncated_normal(
-                                [c5_filter_size, c5_filter_size, c4_depth, c5_depth], stddev=0.1))
-c5_biases = tf.Variable(tf.zeros([c5_depth]))
-c5_feat_map_size = int(math.ceil(float(c4_feat_map_size) / c5_stride))
+	c4_weights = tf.Variable(tf.truncated_normal(
+	                                [c4_filter_size, c4_filter_size, c3_depth, c4_depth], stddev=0.1))
+	c4_biases = tf.Variable(tf.zeros([c4_depth]))
+	c4_feat_map_size = int(math.ceil(float(c3_feat_map_size) / c4_stride))
 
-# TODO: classification layer hyperparameters
+	c5_weights = tf.Variable(tf.truncated_normal(
+	                                [c5_filter_size, c5_filter_size, c4_depth, c5_depth], stddev=0.1))
+	c5_biases = tf.Variable(tf.zeros([c5_depth]))
+	c5_feat_map_size = int(math.ceil(float(c4_feat_map_size) / c5_stride))
 
-# Input to the entire netowrk: x and y.
-x = tf.placeholder(tf.float32, [NUM_IMAGES, IMAGE_SIZE*IMAGE_SIZE])
-x = tf.reshape(x, [-1,IMAGE_SIZE,IMAGE_SIZE,1])
+	c6_feat_map_size = c6_upsample_factor * c5_feat_map_size
 
-y_ = tf.placeholder(tf.float32, [None, IMAGE_SIZE, IMAGE_SIZE, 2])
+	# TODO: classification layer hyperparameters
 
-# Low level feature network.
-ll1 = tf.nn.conv2d(x, ll1_weights, [1, ll1_stride, ll1_stride, 1], padding='SAME')
-ll1 = tf.nn.relu(ll1 + ll1_biases)
 
-ll2 = tf.nn.conv2d(ll1, ll2_weights, [1, ll2_stride, ll2_stride, 1], padding='SAME')
-ll2 = tf.nn.relu(ll2 + ll2_biases)
+	def model(data, train=False):
+		# Low level feature network.
+		ll1 = tf.nn.conv2d(data, ll1_weights, [1, ll1_stride, ll1_stride, 1], padding='SAME')
+		ll1 = tf.nn.relu(ll1 + ll1_biases)
 
-ll3 = tf.nn.conv2d(ll2, ll3_weights, [1, ll3_stride, ll3_stride, 1], padding='SAME')
-ll3 = tf.nn.relu(ll3 + ll3_biases)
+		ll2 = tf.nn.conv2d(ll1, ll2_weights, [1, ll2_stride, ll2_stride, 1], padding='SAME')
+		ll2 = tf.nn.relu(ll2 + ll2_biases)
 
-ll4 = tf.nn.conv2d(ll3, ll4_weights, [1, ll4_stride, ll4_stride, 1], padding='SAME')
-ll4 = tf.nn.relu(ll4 + ll4_biases)
+		ll3 = tf.nn.conv2d(ll2, ll3_weights, [1, ll3_stride, ll3_stride, 1], padding='SAME')
+		ll3 = tf.nn.relu(ll3 + ll3_biases)
 
-# Global features network.
-g1 = tf.nn.conv2d(ll4, g1_weights, [1, g1_stride, g1_stride, 1], padding='SAME')
-g1 = tf.nn.relu(g1 + g1_biases)
+		ll4 = tf.nn.conv2d(ll3, ll4_weights, [1, ll4_stride, ll4_stride, 1], padding='SAME')
+		ll4 = tf.nn.relu(ll4 + ll4_biases)
 
-g2 = tf.nn.conv2d(g1, g2_weights, [1, g2_stride, g2_stride, 1], padding='SAME')
-g2 = tf.nn.relu(g2 + g2_biases)
+		# Global features network.
+		g1 = tf.nn.conv2d(ll4, g1_weights, [1, g1_stride, g1_stride, 1], padding='SAME')
+		g1 = tf.nn.relu(g1 + g1_biases)
 
-shape = g2.get_shape().as_list()
-print 'g2 shape, should be 8 x 8 x 256:', print shape
-g2 = tf.reshape(g2, [shape[0], shape[1] * shape[2] * shape[3]])
-print 'g2 shape after reshaping to pass into fully connected again'
-print g2.get_shape().as_list()
+		g2 = tf.nn.conv2d(g1, g2_weights, [1, g2_stride, g2_stride, 1], padding='SAME')
+		g2 = tf.nn.relu(g2 + g2_biases)
 
-print 'g3 weights shape', g3_weights.get_shape().as_list()
-g3 = tf.nn.relu(tf.matmul(g2, g3_weights) + g3_biases)
-print 'g3 shape:', g3.get_shape().as_list()
+		shape = g2.get_shape().as_list()
+		print 'g2 shape, should be 8 x 8 x 256:', shape
+		g2 = tf.reshape(g2, [shape[0], shape[1] * shape[2] * shape[3]])
+		print 'g2 shape after reshaping to pass into fully connected again'
+		print g2.get_shape().as_list()
 
-g4 = tf.nn.relu(tf.matmul(g3, g4_weights) + g4_biases)
-print 'g4 shape:', g4.get_shape().as_list()
+		print 'g3 weights shape', g3_weights.get_shape().as_list()
+		g3 = tf.nn.relu(tf.matmul(g2, g3_weights) + g3_biases)
+		print 'g3 shape:', g3.get_shape().as_list()
 
-g5 = tf.nn.relu(tf.matmul(g4, g5_weights) + g5_biases)
+		g4 = tf.nn.relu(tf.matmul(g3, g4_weights) + g4_biases)
+		print 'g4 shape:', g4.get_shape().as_list()
 
-# Mid level features network.
-ml1 = tf.nn.conv2d(ll4, ml1_weights, [1, ml1_stride, ml1_stride, 1], padding='SAME')
-ml1 = tf.nn.relu(ml1 + ml1_biases)
+		g5 = tf.nn.relu(tf.matmul(g4, g5_weights) + g5_biases)
 
-ml2 = tf.nn.conv2d(ml1, ml2_weights, [1, ml2_stride, ml2_stride, 1], padding='SAME')
-ml2 = tf.nn.relu(ml2 + ml2_biases)
+		# Mid level features network.
+		ml1 = tf.nn.conv2d(ll4, ml1_weights, [1, ml1_stride, ml1_stride, 1], padding='SAME')
+		ml1 = tf.nn.relu(ml1 + ml1_biases)
 
-# Check that the fusion layer works.
-print 'g5 shape:', g5.get_shape().as_list()
-print 'ml2 shape:', ml2.get_shape().as_list()
+		ml2 = tf.nn.conv2d(ml1, ml2_weights, [1, ml2_stride, ml2_stride, 1], padding='SAME')
+		ml2 = tf.nn.relu(ml2 + ml2_biases)
 
-# For fusion layer, the intended input should be IMAGE_SIZE/4 x IMAGE_SIZE/4 x 4*DEPTH,
-# which is ml2_feat_map_size x ml2_feat_map_size x (ml2_depth + g5_num_hidden)
-fusion = tf.concat(3,[tf.reshape(tf.tile(g5,[1,ml2_feat_map_size**2]),[2,ml2_feat_map_size,ml2_feat_map_size,g5_num_hidden]),ml2])
-shape = fusion.get_shape().as_list()
-print 'fusion shape, should be 16 x 16 x 256:', shape
+		# Check that the fusion layer works.
+		print 'g5 shape:', g5.get_shape().as_list()
+		print 'ml2 shape:', ml2.get_shape().as_list()
 
-print 'c1 weights shape', c1_weights.get_shape().as_list()
-c1 = tf.nn.conv2d(fusion, c1_weights, [1, c1_stride, c1_stride, 1], padding='SAME')
-c1 = tf.nn.relu(c1 + c1_biases)
+		# For fusion layer, the intended input should be IMAGE_SIZE/4 x IMAGE_SIZE/4 x 4*DEPTH,
+		# which is ml2_feat_map_size x ml2_feat_map_size x (ml2_depth + g5_num_hidden)
+		fusion = tf.concat(3,[tf.reshape(tf.tile(g5,[1,ml2_feat_map_size**2]),[2,ml2_feat_map_size,ml2_feat_map_size,g5_num_hidden]),ml2])
+		shape = fusion.get_shape().as_list()
+		print 'fusion shape, should be 16 x 16 x 256:', shape
 
-print 'c1 results shape', c1.get_shape().as_list()
+		print 'c1 weights shape', c1_weights.get_shape().as_list()
+		c1 = tf.nn.conv2d(fusion, c1_weights, [1, c1_stride, c1_stride, 1], padding='SAME')
+		c1 = tf.nn.relu(c1 + c1_biases)
 
-c2 = tf.nn.conv2d(c1, c2_weights, [1, c2_stride, c2_stride, 1], padding='SAME')
-c2 = tf.nn.relu(c2 + c2_biases)
-c2_shape = c2.get_shape().as_list()
-print 'c2 shape:', c2_shape
+		print 'c1 results shape', c1.get_shape().as_list()
 
-# Upsample.
-c3 = tf.image.resize_nearest_neighbor(c2, [2*c2_shape[1], 2*c2_shape[2]], align_corners=None)
-print 'c3 shape (after upsample):', c3.get_shape().as_list()
+		c2 = tf.nn.conv2d(c1, c2_weights, [1, c2_stride, c2_stride, 1], padding='SAME')
+		c2 = tf.nn.relu(c2 + c2_biases)
+		c2_shape = c2.get_shape().as_list()
+		print 'c2 shape:', c2_shape
 
-c4 = tf.nn.conv2d(c3, c4_weights, [1, c4_stride, c4_stride, 1], padding='SAME')
-c4 = tf.nn.relu(c4 + c4_biases)
-print 'c4 shape:', c4.get_shape().as_list()
+		# Upsample.
+		c3 = tf.image.resize_nearest_neighbor(c2, [2*c2_shape[1], 2*c2_shape[2]])
+		print 'c3 shape (after upsample):', c3.get_shape().as_list()
 
-c5 = tf.nn.conv2d(c4, c5_weights, [1, c5_stride, c5_stride, 1], padding='SAME')
-c5 = tf.nn.relu(c5 + c5_biases)
-print 'c5 shape:', c5.get_shape().as_list()
+		c4 = tf.nn.conv2d(c3, c4_weights, [1, c4_stride, c4_stride, 1], padding='SAME')
+		c4 = tf.nn.relu(c4 + c4_biases)
+		print 'c4 shape:', c4.get_shape().as_list()
 
-'''
-hidden = tf.nn.sigmoid(conv1 + layer1_biases)
+		# Note that this uses Sigmoid transfer function instead of ReLU.
+		c5 = tf.nn.conv2d(c4, c5_weights, [1, c5_stride, c5_stride, 1], padding='SAME')
+		c5 = tf.nn.sigmoid(c5 + c5_biases)
+		c5_shape = c5.get_shape().as_list()
+		print 'c5 shape:', c5_shape
 
-tf.image.resize_nearest_neighbor(images, size, align_corners=None, name=None)
+		if train:
+			# Dropout training.
+			c5 = tf.nn.dropout(c5, .5, seed=SEED)
+			return c5
+		else:
+			# ONLY DURING TESTING, NOT TRAINING:
+			# Upsample again, then merge with original image.
+			c6 = tf.image.resize_nearest_neighbor(c5, [2*c5_shape[1], 2*c5_shape[2]])
+			print 'c6 shape:', c6.get_shape().as_list()
+			return c6
 
-loss = tf.reduce_mean(tf.square(g4, tf_train_labels))
-optimizer = tf.train.AdadeltaOptimizer(learning_rate).minimize(loss)
+	# TODO: split up input images into batches, feed them into the model.
+	# For now, can just read in those two images, process them into the grayscale
+	# and the *a*b* color values.
+	x = tf.placeholder(tf.float32, [NUM_IMAGES, IMAGE_SIZE*IMAGE_SIZE])
+	x = tf.reshape(x, [-1,IMAGE_SIZE,IMAGE_SIZE,1])
 
-init = tf.initialize_all_variables()
-sess = tf.Session()
-result = sess.run(init)
+	y = tf.placeholder(tf.float32, [NUM_IMAGES, IMAGE_SIZE, IMAGE_SIZE, 2])
+	y_downsample = tf.image.resize_nearest_neighbor(y, [IMAGE_SIZE/2, IMAGE_SIZE/2])
 
-sess.run(train_step, feed_dict={x: batch_xs, y_: batch_ys})
-#print(result)
-'''
+	# Downsample the original images to use to compute loss.
+	tf.image.resize_nearest_neighbor(x, [IMAGE_SIZE/2, IMAGE_SIZE/2])
+
+	training_labels = model(x, train=True)
+
+	print 'y_downsample shape:', y_downsample.get_shape().as_list()
+	print 'training_labels shape:', training_labels.get_shape().as_list()
+	loss = tf.reduce_mean(tf.square(y_downsample - training_labels))
+	optimizer = tf.train.AdadeltaOptimizer(learning_rate=.01).minimize(loss)
+
+	init = tf.initialize_all_variables()
+	sess.run(init)
+	# sess.run(loss)
+	print 'loss:', loss
+	'''
+	sess.run(train_step, feed_dict={x: batch_xs, y_: batch_ys})
+	'''
+if __name__ == '__main__':
+	main()
