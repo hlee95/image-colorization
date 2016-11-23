@@ -182,7 +182,8 @@ c2_depth = DEPTH
 c2_stride = 1
 
 # Output is IMAGE_SIZE/2 x IMAGE_SIZE/2 x DEPTH
-c3_filter_size = 3
+c3_upsample_factor = 2
+c3_depth = DEPTH
 
 # Output is IMAGE_SIZE/2 x IMAGE_SIZE/2 x DEPTH/2
 c4_filter_size = 3
@@ -204,20 +205,19 @@ c2_weights = tf.Variable(tf.truncated_normal(
                                 [c2_filter_size, c2_filter_size, c1_num_hidden, c2_depth], stddev=0.1))
 c2_biases = tf.Variable(tf.zeros([c2_depth]))
 c2_feat_map_size = int(math.ceil(float(ml2_feat_map_size) / c2_stride))
-print('c2 feature map size: %d' % c2_feat_map_size)
 
-'''
+c3_feat_map_size = c3_upsample_factor * c2_feat_map_size
 
 c4_weights = tf.Variable(tf.truncated_normal(
-                                [m2_filter_size, m1_filter_size, c1_num_hidden, c2_depth], stddev=0.1))
-c4_biases = tf.Variable(tf.zeros([m1_depth]))
-c4_feat_map_size = int(math.ceil(float(ll4_feat_map_size) / m1_stride))
+                                [c4_filter_size, c4_filter_size, c3_depth, c4_depth], stddev=0.1))
+c4_biases = tf.Variable(tf.zeros([c4_depth]))
+c4_feat_map_size = int(math.ceil(float(c3_feat_map_size) / c4_stride))
 
 c5_weights = tf.Variable(tf.truncated_normal(
-                                [m2_filter_size, m1_filter_size, c1_num_hidden, c2_depth], stddev=0.1))
-c5_biases = tf.Variable(tf.zeros([m1_depth]))
-c5_feat_map_size = int(math.ceil(float(ll4_feat_map_size) / m1_stride))
-'''
+                                [c5_filter_size, c5_filter_size, c4_depth, c5_depth], stddev=0.1))
+c5_biases = tf.Variable(tf.zeros([c5_depth]))
+c5_feat_map_size = int(math.ceil(float(c4_feat_map_size) / c5_stride))
+
 # TODO: classification layer hyperparameters
 
 # Input to the entire netowrk: x and y.
@@ -247,8 +247,7 @@ g2 = tf.nn.conv2d(g1, g2_weights, [1, g2_stride, g2_stride, 1], padding='SAME')
 g2 = tf.nn.relu(g2 + g2_biases)
 
 shape = g2.get_shape().as_list()
-print 'g2 shape, should be 8 x 8 x 256'
-print shape
+print 'g2 shape, should be 8 x 8 x 256:', print shape
 g2 = tf.reshape(g2, [shape[0], shape[1] * shape[2] * shape[3]])
 print 'g2 shape after reshaping to pass into fully connected again'
 print g2.get_shape().as_list()
@@ -258,8 +257,7 @@ g3 = tf.nn.relu(tf.matmul(g2, g3_weights) + g3_biases)
 print 'g3 shape:', g3.get_shape().as_list()
 
 g4 = tf.nn.relu(tf.matmul(g3, g4_weights) + g4_biases)
-print 'g4 shape:'
-print g4.get_shape().as_list()
+print 'g4 shape:', g4.get_shape().as_list()
 
 g5 = tf.nn.relu(tf.matmul(g4, g5_weights) + g5_biases)
 
@@ -278,7 +276,7 @@ print 'ml2 shape:', ml2.get_shape().as_list()
 # which is ml2_feat_map_size x ml2_feat_map_size x (ml2_depth + g5_num_hidden)
 fusion = tf.concat(3,[tf.reshape(tf.tile(g5,[1,ml2_feat_map_size**2]),[2,ml2_feat_map_size,ml2_feat_map_size,g5_num_hidden]),ml2])
 shape = fusion.get_shape().as_list()
-print 'fusion shape, should be 16 x 16 x 256', shape
+print 'fusion shape, should be 16 x 16 x 256:', shape
 
 print 'c1 weights shape', c1_weights.get_shape().as_list()
 c1 = tf.nn.conv2d(fusion, c1_weights, [1, c1_stride, c1_stride, 1], padding='SAME')
@@ -288,10 +286,22 @@ print 'c1 results shape', c1.get_shape().as_list()
 
 c2 = tf.nn.conv2d(c1, c2_weights, [1, c2_stride, c2_stride, 1], padding='SAME')
 c2 = tf.nn.relu(c2 + c2_biases)
+c2_shape = c2.get_shape().as_list()
+print 'c2 shape:', c2_shape
+
+# Upsample.
+c3 = tf.image.resize_nearest_neighbor(c2, [2*c2_shape[1], 2*c2_shape[2]], align_corners=None)
+print 'c3 shape (after upsample):', c3.get_shape().as_list()
+
+c4 = tf.nn.conv2d(c3, c4_weights, [1, c4_stride, c4_stride, 1], padding='SAME')
+c4 = tf.nn.relu(c4 + c4_biases)
+print 'c4 shape:', c4.get_shape().as_list()
+
+c5 = tf.nn.conv2d(c4, c5_weights, [1, c5_stride, c5_stride, 1], padding='SAME')
+c5 = tf.nn.relu(c5 + c5_biases)
+print 'c5 shape:', c5.get_shape().as_list()
 
 '''
-c3 = tf.image.resize_nearest_neighbor(images, size, align_corners=None, name=None)
-
 hidden = tf.nn.sigmoid(conv1 + layer1_biases)
 
 tf.image.resize_nearest_neighbor(images, size, align_corners=None, name=None)
