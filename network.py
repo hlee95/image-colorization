@@ -49,6 +49,7 @@ NUM_IMAGES = 2
 IMAGE_SIZE = 128
 DEPTH = 64 # To parameterize the depth of each output layer.
 FINAL_DEPTH = 2 # The final depth should always be 2.
+epsilon = 1e-3
 
 def read_scaled_color_image_Lab(filename):
 	rgb = io.imread(filename)[:,:,:3]
@@ -61,6 +62,28 @@ def read_scaled_color_image_Lab(filename):
 	lab[:,:,1] = (lab[:,:,1]-a_min)/(a_max-a_min)
 	lab[:,:,2] = (lab[:,:,2]-b_min)/(b_max-b_min)
 	return lab
+
+def batch_norm(inputs, train, axes = 3, decay = 0.999):
+
+    scale = tf.Variable(tf.ones([inputs.get_shape()[-1]]))
+    beta = tf.Variable(tf.zeros([inputs.get_shape()[-1]]))
+    pop_mean = tf.Variable(tf.zeros([inputs.get_shape()[-1]]), trainable=False)
+    pop_var = tf.Variable(tf.ones([inputs.get_shape()[-1]]), trainable=False)
+
+    if train:
+        batch_mean, batch_var = tf.nn.moments(inputs,[0])
+        if axes == 3:
+        	batch_mean, batch_var = tf.nn.moments(inputs,[0,1,2])
+        train_mean = tf.assign(pop_mean,
+                               pop_mean * decay + batch_mean * (1 - decay))
+        train_var = tf.assign(pop_var,
+                              pop_var * decay + batch_var * (1 - decay))
+        with tf.control_dependencies([train_mean, train_var]):
+            return tf.nn.batch_normalization(inputs,
+                batch_mean, batch_var, beta, scale, epsilon)
+    else:
+        return tf.nn.batch_normalization(inputs,
+            pop_mean, pop_var, beta, scale, epsilon)
 
 def main():
 	sess = tf.Session()
@@ -128,7 +151,7 @@ def main():
 	# Output is IMAGE_SIZE/8 x IMAGE_SIZE/8 x 4*DEPTH
 	g3_filter_size = 3
 	g3_depth = 4*DEPTH
-	g3_stride = 1
+	g3_stride = 2
 
 	# Output is IMAGE_SIZES/8 x IMAGE_SIZE/8 x 4*DEPTH
 	g4_filter_size = 3
@@ -163,7 +186,7 @@ def main():
 	g4_feat_map_size = int(math.ceil(float(g3_feat_map_size) / g4_stride))
 
 	g5_weights = tf.Variable(tf.truncated_normal(
-									[g2_feat_map_size * g2_feat_map_size * g2_depth, g5_num_hidden], stddev=0.1))
+									[g4_feat_map_size * g4_feat_map_size * g4_depth, g5_num_hidden], stddev=0.1))
 	g5_biases = tf.Variable(tf.zeros([g5_num_hidden]))
 
 	g6_weights = tf.Variable(tf.truncated_normal(
@@ -268,29 +291,29 @@ def main():
 	def model(data, train=False):
 		# Low level feature network.
 		ll1 = tf.nn.conv2d(data, ll1_weights, [1, ll1_stride, ll1_stride, 1], padding='SAME')
-		ll1 = tf.nn.relu(ll1 + ll1_biases)
+		ll1 = tf.nn.relu(batch_norm(ll1 + ll1_biases,train))
 
 		ll2 = tf.nn.conv2d(ll1, ll2_weights, [1, ll2_stride, ll2_stride, 1], padding='SAME')
-		ll2 = tf.nn.relu(ll2 + ll2_biases)
+		ll2 = tf.nn.relu(batch_norm(ll2 + ll2_biases,train))
 
 		ll3 = tf.nn.conv2d(ll2, ll3_weights, [1, ll3_stride, ll3_stride, 1], padding='SAME')
-		ll3 = tf.nn.relu(ll3 + ll3_biases)
+		ll3 = tf.nn.relu(batch_norm(ll3 + ll3_biases,train))
 
 		ll4 = tf.nn.conv2d(ll3, ll4_weights, [1, ll4_stride, ll4_stride, 1], padding='SAME')
-		ll4 = tf.nn.relu(ll4 + ll4_biases)
+		ll4 = tf.nn.relu(batch_norm(ll4 + ll4_biases,train))
 
 		# Global features network.
 		g1 = tf.nn.conv2d(ll4, g1_weights, [1, g1_stride, g1_stride, 1], padding='SAME')
-		g1 = tf.nn.relu(g1 + g1_biases)
+		g1 = tf.nn.relu(batch_norm(g1 + g1_biases,train))
 
 		g2 = tf.nn.conv2d(g1, g2_weights, [1, g2_stride, g2_stride, 1], padding='SAME')
-		g2 = tf.nn.relu(g2 + g2_biases)
+		g2 = tf.nn.relu(batch_norm(g2 + g2_biases,train))
 
 		g3 = tf.nn.conv2d(g2, g3_weights, [1, g3_stride, g3_stride, 1], padding='SAME')
-		g3 = tf.nn.relu(g3 + g3_biases)
+		g3 = tf.nn.relu(batch_norm(g3 + g3_biases,train))
 
 		g4 = tf.nn.conv2d(g3, g4_weights, [1, g4_stride, g4_stride, 1], padding='SAME')
-		g4 = tf.nn.relu(g4 + g4_biases)
+		g4 = tf.nn.relu(batch_norm(g4 + g4_biases,train))
 
 		shape = g4.get_shape().as_list()
 		print 'g4 shape, should be 8 x 8 x 256:', shape
@@ -299,20 +322,20 @@ def main():
 		print g4.get_shape().as_list()
 
 		print 'g5 weights shape', g5_weights.get_shape().as_list()
-		g5 = tf.nn.relu(tf.matmul(g4, g5_weights) + g5_biases)
+		g5 = tf.nn.relu(batch_norm(tf.matmul(g4, g5_weights) + g5_biases,train,1))
 		print 'g5 shape:', g5.get_shape().as_list()
 
-		g6 = tf.nn.relu(tf.matmul(g5, g6_weights) + g6_biases)
+		g6 = tf.nn.relu(batch_norm(tf.matmul(g5, g6_weights) + g6_biases,train,1))
 		print 'g6 shape:', g6.get_shape().as_list()
 
-		g7 = tf.nn.relu(tf.matmul(g6, g7_weights) + g7_biases)
+		g7 = tf.nn.relu(batch_norm(tf.matmul(g6, g7_weights) + g7_biases,train,1))
 
 		# Mid level features network.
 		ml1 = tf.nn.conv2d(ll4, ml1_weights, [1, ml1_stride, ml1_stride, 1], padding='SAME')
-		ml1 = tf.nn.relu(ml1 + ml1_biases)
+		ml1 = tf.nn.relu(batch_norm(ml1 + ml1_biases,train))
 
 		ml2 = tf.nn.conv2d(ml1, ml2_weights, [1, ml2_stride, ml2_stride, 1], padding='SAME')
-		ml2 = tf.nn.relu(ml2 + ml2_biases)
+		ml2 = tf.nn.relu(batch_norm(ml2 + ml2_biases,train))
 
 		# Check that the fusion layer works.
 		print 'g7 shape:', g7.get_shape().as_list()
@@ -326,12 +349,12 @@ def main():
 
 		print 'c1 weights shape', c1_weights.get_shape().as_list()
 		c1 = tf.nn.conv2d(fusion, c1_weights, [1, c1_stride, c1_stride, 1], padding='SAME')
-		c1 = tf.nn.relu(c1 + c1_biases)
+		c1 = tf.nn.relu(batch_norm(c1 + c1_biases,train))
 
 		print 'c1 results shape', c1.get_shape().as_list()
 
 		c2 = tf.nn.conv2d(c1, c2_weights, [1, c2_stride, c2_stride, 1], padding='SAME')
-		c2 = tf.nn.relu(c2 + c2_biases)
+		c2 = tf.nn.relu(batch_norm(c2 + c2_biases,train))
 		c2_shape = c2.get_shape().as_list()
 		print 'c2 shape:', c2_shape
 
@@ -340,7 +363,7 @@ def main():
 		print 'c3 shape (after upsample):', c3.get_shape().as_list()
 
 		c4 = tf.nn.conv2d(c3, c4_weights, [1, c4_stride, c4_stride, 1], padding='SAME')
-		c4 = tf.nn.relu(c4 + c4_biases)
+		c4 = tf.nn.relu(batch_norm(c4 + c4_biases,train))
 		print 'c4 shape:', c4.get_shape().as_list()
 
 		# Note that this uses Sigmoid transfer function instead of ReLU.
