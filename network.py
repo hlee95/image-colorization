@@ -1,5 +1,6 @@
 import tensorflow as tf
 import math
+import os
 import sys
 import numpy as np
 from scipy import ndimage
@@ -44,12 +45,18 @@ def color_small():
 	#accuracy = tf.reduce_mean(tf.cast(correct_prediction, tf.float32))
 	#print(sess.run(accuracy, feed_dict={x: mnist.test.images.reshape(-1,28,28,1), y_: mnist.test.labels}))
 
-SEED = 66478  # Set to None for random seed.
-NUM_IMAGES = None
+SEED = 66478 					# Set to None for random seed.
+NUM_TRAIN_IMAGES = 2 			# Should be 100,000 for actual dataset.
+NUM_TEST_IMAGES = 10000
+NUM_VALIDATION_IMAGES = 10000
+BATCH_SIZE = 2  				# Should be 128 for actual dataset.
+EVAL_BATCH_SIZE = 128
 IMAGE_SIZE = 128
-DEPTH = 64 # To parameterize the depth of each output layer.
-FINAL_DEPTH = 2 # The final depth should always be 2.
+DEPTH = 64 						# Used to parameterize the depth of each output layer.
+FINAL_DEPTH = 2 				# The final depth should always be 2.
 epsilon = 1e-3
+IMAGES_DIR = 'data/' 			# Relative or absolute path to directory where images are.
+                     			# IMAGES_DIR should have 3 subdirectories: train, validate, test
 
 def read_scaled_color_image_Lab(filename):
 	# Read image, cut off alpha channel, only keep rgb.
@@ -65,6 +72,12 @@ def read_scaled_color_image_Lab(filename):
 	lab[:,:,1] = (lab[:,:,1]-a_min)/(a_max-a_min)
 	lab[:,:,2] = (lab[:,:,2]-b_min)/(b_max-b_min)
 	return lab
+
+# Returns an integer label for an image filename.
+# Used to get labels for the classification network.
+def get_label_from_filename(filename):
+	# TODO!!!
+	return 0
 
 def batch_norm(inputs, train, axes = 3, decay = 0.999):
 
@@ -90,6 +103,21 @@ def batch_norm(inputs, train, axes = 3, decay = 0.999):
 
 def main():
 	sess = tf.Session()
+
+	# This is where training samples and labels are fed to the graph.
+	# These placeholder nodes will be fed a batch of training data at each
+	# training step using the {feed_dict} argument to the Run() call below.
+	train_data_node = tf.placeholder(
+	  	tf.float32,
+	  	shape=(BATCH_SIZE, IMAGE_SIZE, IMAGE_SIZE, 1))
+	train_colors_node = tf.placeholder(
+		tf.float32,
+		shape=(BATCH_SIZE, IMAGE_SIZE/2, IMAGE_SIZE/2, 2))
+	train_class_node = tf.placeholder(tf.int64, shape=(BATCH_SIZE,))
+	# eval_data = tf.placeholder(
+	#   	tf.float32,
+	#   	shape=(EVAL_BATCH_SIZE, IMAGE_SIZE, IMAGE_SIZE, 2))
+
 	######
 	# Low level feature hyperparameters: 4 convolutional layers.
 	######
@@ -292,9 +320,7 @@ def main():
 
 
 	def model(data, train=False):
-		NUM_IMAGES = data.shape[0]
 		# Low level feature network.
-		print 'data shape:', data.shape
 		ll1 = tf.nn.conv2d(data, ll1_weights, [1, ll1_stride, ll1_stride, 1], padding='SAME')
 		ll1 = tf.nn.relu(batch_norm(ll1 + ll1_biases,train))
 
@@ -341,14 +367,14 @@ def main():
 
 		ml2 = tf.nn.conv2d(ml1, ml2_weights, [1, ml2_stride, ml2_stride, 1], padding='SAME')
 		ml2 = tf.nn.relu(batch_norm(ml2 + ml2_biases,train))
-
+		ml2_shape = ml2.get_shape().as_list()
 		# Check that the fusion layer works.
 		print 'g7 shape:', g7.get_shape().as_list()
 		print 'ml2 shape:', ml2.get_shape().as_list()
 
 		# For fusion layer, the intended input should be IMAGE_SIZE/4 x IMAGE_SIZE/4 x 4*DEPTH,
 		# which is ml2_feat_map_size x ml2_feat_map_size x (ml2_depth + g7_num_hidden)
-		fusion = tf.concat(3,[tf.reshape(tf.tile(g7,[1,ml2_feat_map_size**2]),[NUM_IMAGES,ml2_feat_map_size,ml2_feat_map_size,g7_num_hidden]),ml2])
+		fusion = tf.concat(3,[tf.reshape(tf.tile(g7,[1,ml2_feat_map_size**2]),[ml2_shape[0],ml2_feat_map_size,ml2_feat_map_size,g7_num_hidden]),ml2])
 		shape = fusion.get_shape().as_list()
 		print 'fusion shape, should be 32 x 32 x 256:', shape
 
@@ -388,35 +414,52 @@ def main():
 			print 'not training, c6 shape:', c6.get_shape().as_list()
 			return c6
 
-	# TODO: split up input images into batches, feed them into the model.
-	# For now, can just read in those two images, process them into the grayscale
-	# and the *a*b* color values.
-	im = read_scaled_color_image_Lab('sailboat_c.png')
-	im_bw = im[:,:,0].reshape((-1,IMAGE_SIZE,IMAGE_SIZE,1))
-	im_c = im[:,:,1:].reshape((-1,IMAGE_SIZE,IMAGE_SIZE,2))
-
-	x = im_bw
-	y = im_c
-	#x = tf.placeholder(tf.float32, [NUM_IMAGES, IMAGE_SIZE*IMAGE_SIZE])
-	#x = tf.reshape(x, [-1,IMAGE_SIZE,IMAGE_SIZE,1])
-
-	#y = tf.placeholder(tf.float32, [NUM_IMAGES, IMAGE_SIZE, IMAGE_SIZE, 2])
-	y_downsample = tf.image.resize_nearest_neighbor(y, [IMAGE_SIZE/2, IMAGE_SIZE/2])
-
-	# Downsample the original images to use to compute loss.
-	tf.image.resize_nearest_neighbor(x, [IMAGE_SIZE/2, IMAGE_SIZE/2])
-
-	training_labels = model(x, train=True)
-
-	print 'y_downsample shape:', y_downsample.get_shape().as_list()
-	print 'training_labels shape:', training_labels.get_shape().as_list()
-	loss = tf.reduce_mean(tf.square(y_downsample - training_labels))
+	# Use the model to get logits.
+	train_color_logits = model(train_data_node, train=True)
+	# Use mean squared error for loss for colorization network.
+	loss = tf.reduce_mean(tf.square(train_colors_node - train_color_logits))
 	optimizer = tf.train.AdadeltaOptimizer(learning_rate=.01).minimize(loss)
 
+	# Initialize variables.
 	init = tf.initialize_all_variables()
 	sess.run(init)
-	sess.run(loss)
-	print 'loss:', loss
+	# Get training data, in batches..
+	train_dir = IMAGES_DIR + 'train/'
+	filenames = os.listdir(train_dir)
+	num_images = len(filenames)
+	assert(num_images == NUM_TRAIN_IMAGES)
+	num_batches = int(math.ceil(float(num_images/BATCH_SIZE)))
+	# Iterate through batches.
+	for batch in xrange(num_batches):
+		# Create zeroed arrays that we will fill with appropriate image data.
+		bw_images = np.zeros([BATCH_SIZE, IMAGE_SIZE, IMAGE_SIZE, 1], dtype=np.float32)
+		color_features = np.zeros([BATCH_SIZE, IMAGE_SIZE, IMAGE_SIZE, 2], dtype=np.float32)
+		class_labels = np.zeros([BATCH_SIZE])
+		# Determine where in the global list of files we should start for this batch.
+		start_idx = batch * BATCH_SIZE
+		for file_idx in xrange(start_idx, start_idx + BATCH_SIZE):
+			filename = filenames[file_idx]
+			label = get_label_from_filename(filename)
+			im = read_scaled_color_image_Lab(train_dir + filename)
+			im_bw = im[:,:,0].reshape((-1,IMAGE_SIZE,IMAGE_SIZE,1))
+			im_c = im[:,:,1:].reshape((-1,IMAGE_SIZE,IMAGE_SIZE,2))
+			bw_images[file_idx] = im_bw
+			color_features[file_idx] = im_c
+
+		x = bw_images
+		print 'x shape:', x.shape
+		y = color_features
+		y_downsample = tf.image.resize_nearest_neighbor(y, [IMAGE_SIZE/2, IMAGE_SIZE/2]).eval(session=sess)
+		feed_dict = {train_data_node: x,
+					 train_colors_node: y_downsample,
+					 train_class_node: class_labels}
+
+		# Train the model.
+		training_labels = model(x, train=True)
+		print 'y_downsample shape:', y_downsample.shape
+		print 'training_labels shape:', training_labels.get_shape().as_list()
+		_, l = sess.run([optimizer, loss], feed_dict=feed_dict)
+		print 'loss:', loss
 	'''
 	sess.run(train_step, feed_dict={x: batch_xs, y_: batch_ys})
 	'''
