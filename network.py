@@ -5,6 +5,7 @@ import numpy as np
 from scipy import ndimage
 import matplotlib.pyplot as plt
 from scipy import misc
+from skimage import io, color
 
 def color_small():
         x = tf.placeholder(tf.float32, [None, 64*64])
@@ -49,6 +50,12 @@ IMAGE_SIZE = 64
 DEPTH = 64
 # The final depth should always be 2.
 FINAL_DEPTH = 2
+
+def read_scaled_color_image_Lab(filename):
+	rgba = io.imread(filename)
+	#lab = color.rgb2lab(color.rgba2rgb(rgba))
+	#print lab
+	#return lab
 
 def main():
 	sess = tf.Session()
@@ -166,7 +173,7 @@ def main():
 	                                [ml2_filter_size, ml2_filter_size, ml1_depth, ml2_depth], stddev=0.1))
 	ml2_biases = tf.Variable(tf.zeros([ml2_depth]))
 	ml2_feat_map_size = int(math.ceil(float(ml1_feat_map_size) / ml2_stride))
-	print("m12 feature map size: %d" % ml2_feat_map_size)
+
 	######
 	# Colorization layer hyperparameters: one fusion layer, one convolutional layer,# one upsample, two more convolutional layers.
 	# Expected output size is IMAGE_SIZE/4 x IMAGE_SIZE/4 x 2
@@ -324,11 +331,14 @@ def main():
 	# TODO: split up input images into batches, feed them into the model.
 	# For now, can just read in those two images, process them into the grayscale
 	# and the *a*b* color values.
+	im = read_scaled_color_image_Lab('sailboat_c.png')
 	x = tf.placeholder(tf.float32, [NUM_IMAGES, IMAGE_SIZE*IMAGE_SIZE])
 	x = tf.reshape(x, [-1,IMAGE_SIZE,IMAGE_SIZE,1])
 
 	y = tf.placeholder(tf.float32, [NUM_IMAGES, IMAGE_SIZE, IMAGE_SIZE, 2])
 	y_downsample = tf.image.resize_nearest_neighbor(y, [IMAGE_SIZE/2, IMAGE_SIZE/2])
+
+
 
 	# Downsample the original images to use to compute loss.
 	tf.image.resize_nearest_neighbor(x, [IMAGE_SIZE/2, IMAGE_SIZE/2])
