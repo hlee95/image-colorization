@@ -46,7 +46,7 @@ def color_small():
 
 SEED = 66478  # Set to None for random seed.
 NUM_IMAGES = 2
-IMAGE_SIZE = 64
+IMAGE_SIZE = 128
 DEPTH = 64 # To parameterize the depth of each output layer.
 FINAL_DEPTH = 2 # The final depth should always be 2.
 
@@ -125,12 +125,22 @@ def main():
 	g2_depth = 4*DEPTH
 	g2_stride = 1
 
+	# Output is IMAGE_SIZE/8 x IMAGE_SIZE/8 x 4*DEPTH
+	g3_filter_size = 3
+	g3_depth = 4*DEPTH
+	g3_stride = 1
+
+	# Output is IMAGE_SIZES/8 x IMAGE_SIZE/8 x 4*DEPTH
+	g4_filter_size = 3
+	g4_depth = 4*DEPTH
+	g4_stride = 1
+
 	# First fully connected layer, outputs 8*DEPTH.
-	g3_num_hidden = 8*DEPTH
+	g5_num_hidden = 8*DEPTH
 	# Second fully connected layer.
-	g4_num_hidden = 4*DEPTH
+	g6_num_hidden = 4*DEPTH
 	# Third fully connected layer.
-	g5_num_hidden = 2*DEPTH
+	g7_num_hidden = 2*DEPTH
 
 	g1_weights = tf.Variable(tf.truncated_normal(
 									[g1_filter_size, g1_filter_size, ll4_depth, g1_depth], stddev=0.1))
@@ -143,16 +153,26 @@ def main():
 	g2_feat_map_size = int(math.ceil(float(g1_feat_map_size) / g2_stride))
 
 	g3_weights = tf.Variable(tf.truncated_normal(
-									[g2_feat_map_size * g2_feat_map_size * g2_depth, g3_num_hidden], stddev=0.1))
-	g3_biases = tf.Variable(tf.zeros([g3_num_hidden]))
+									[g3_filter_size, g3_filter_size, g2_depth, g3_depth], stddev=0.1))
+	g3_biases = tf.Variable(tf.zeros([g3_depth]))
+	g3_feat_map_size = int(math.ceil(float(g2_feat_map_size) / g3_stride))
 
 	g4_weights = tf.Variable(tf.truncated_normal(
-									[g3_num_hidden, g4_num_hidden], stddev=0.1))
-	g4_biases = tf.Variable(tf.zeros([g4_num_hidden]))
+									[g4_filter_size, g4_filter_size, g3_depth, g4_depth], stddev=0.1))
+	g4_biases = tf.Variable(tf.zeros([g4_depth]))
+	g4_feat_map_size = int(math.ceil(float(g3_feat_map_size) / g4_stride))
 
 	g5_weights = tf.Variable(tf.truncated_normal(
-									[g4_num_hidden, g5_num_hidden], stddev=0.1))
+									[g2_feat_map_size * g2_feat_map_size * g2_depth, g5_num_hidden], stddev=0.1))
 	g5_biases = tf.Variable(tf.zeros([g5_num_hidden]))
+
+	g6_weights = tf.Variable(tf.truncated_normal(
+									[g5_num_hidden, g6_num_hidden], stddev=0.1))
+	g6_biases = tf.Variable(tf.zeros([g6_num_hidden]))
+
+	g7_weights = tf.Variable(tf.truncated_normal(
+									[g6_num_hidden, g7_num_hidden], stddev=0.1))
+	g7_biases = tf.Variable(tf.zeros([g7_num_hidden]))
 
 	######
 	# Mid-level feature hyperparameters: two convolutional layers.
@@ -266,20 +286,26 @@ def main():
 		g2 = tf.nn.conv2d(g1, g2_weights, [1, g2_stride, g2_stride, 1], padding='SAME')
 		g2 = tf.nn.relu(g2 + g2_biases)
 
-		shape = g2.get_shape().as_list()
-		print 'g2 shape, should be 8 x 8 x 256:', shape
-		g2 = tf.reshape(g2, [shape[0], shape[1] * shape[2] * shape[3]])
-		print 'g2 shape after reshaping to pass into fully connected again'
-		print g2.get_shape().as_list()
+		g3 = tf.nn.conv2d(g2, g3_weights, [1, g3_stride, g3_stride, 1], padding='SAME')
+		g3 = tf.nn.relu(g3 + g3_biases)
 
-		print 'g3 weights shape', g3_weights.get_shape().as_list()
-		g3 = tf.nn.relu(tf.matmul(g2, g3_weights) + g3_biases)
-		print 'g3 shape:', g3.get_shape().as_list()
+		g4 = tf.nn.conv2d(g3, g4_weights, [1, g4_stride, g4_stride, 1], padding='SAME')
+		g4 = tf.nn.relu(g4 + g4_biases)
 
-		g4 = tf.nn.relu(tf.matmul(g3, g4_weights) + g4_biases)
-		print 'g4 shape:', g4.get_shape().as_list()
+		shape = g4.get_shape().as_list()
+		print 'g4 shape, should be 8 x 8 x 256:', shape
+		g4 = tf.reshape(g4, [shape[0], shape[1] * shape[2] * shape[3]])
+		print 'g4 shape after reshaping to pass into fully connected again'
+		print g4.get_shape().as_list()
 
+		print 'g5 weights shape', g5_weights.get_shape().as_list()
 		g5 = tf.nn.relu(tf.matmul(g4, g5_weights) + g5_biases)
+		print 'g5 shape:', g5.get_shape().as_list()
+
+		g6 = tf.nn.relu(tf.matmul(g5, g6_weights) + g6_biases)
+		print 'g6 shape:', g6.get_shape().as_list()
+
+		g7 = tf.nn.relu(tf.matmul(g6, g7_weights) + g7_biases)
 
 		# Mid level features network.
 		ml1 = tf.nn.conv2d(ll4, ml1_weights, [1, ml1_stride, ml1_stride, 1], padding='SAME')
@@ -289,12 +315,12 @@ def main():
 		ml2 = tf.nn.relu(ml2 + ml2_biases)
 
 		# Check that the fusion layer works.
-		print 'g5 shape:', g5.get_shape().as_list()
+		print 'g7 shape:', g7.get_shape().as_list()
 		print 'ml2 shape:', ml2.get_shape().as_list()
 
 		# For fusion layer, the intended input should be IMAGE_SIZE/4 x IMAGE_SIZE/4 x 4*DEPTH,
-		# which is ml2_feat_map_size x ml2_feat_map_size x (ml2_depth + g5_num_hidden)
-		fusion = tf.concat(3,[tf.reshape(tf.tile(g5,[1,ml2_feat_map_size**2]),[2,ml2_feat_map_size,ml2_feat_map_size,g5_num_hidden]),ml2])
+		# which is ml2_feat_map_size x ml2_feat_map_size x (ml2_depth + g7_num_hidden)
+		fusion = tf.concat(3,[tf.reshape(tf.tile(g7,[1,ml2_feat_map_size**2]),[2,ml2_feat_map_size,ml2_feat_map_size,g7_num_hidden]),ml2])
 		shape = fusion.get_shape().as_list()
 		print 'fusion shape, should be 16 x 16 x 256:', shape
 
@@ -337,9 +363,9 @@ def main():
 	# TODO: split up input images into batches, feed them into the model.
 	# For now, can just read in those two images, process them into the grayscale
 	# and the *a*b* color values.
-	im = read_scaled_color_image_Lab('sailboat_c.png')
-	im_bw = im[:,:,0].reshape((-1,IMAGE_SIZE,IMAGE_SIZE,1))
-	im_c = im[:,:,1:].reshape((-1,IMAGE_SIZE,IMAGE_SIZE,2))
+	#im = read_scaled_color_image_Lab('sailboat_c.png')
+	#im_bw = im[:,:,0].reshape((-1,IMAGE_SIZE,IMAGE_SIZE,1))
+	#im_c = im[:,:,1:].reshape((-1,IMAGE_SIZE,IMAGE_SIZE,2))
 	x = tf.placeholder(tf.float32, [NUM_IMAGES, IMAGE_SIZE*IMAGE_SIZE])
 	x = tf.reshape(x, [-1,IMAGE_SIZE,IMAGE_SIZE,1])
 
