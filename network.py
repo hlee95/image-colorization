@@ -45,15 +45,18 @@ def color_small():
 	#print(sess.run(accuracy, feed_dict={x: mnist.test.images.reshape(-1,28,28,1), y_: mnist.test.labels}))
 
 SEED = 66478  # Set to None for random seed.
-NUM_IMAGES = 2
+NUM_IMAGES = None
 IMAGE_SIZE = 128
 DEPTH = 64 # To parameterize the depth of each output layer.
 FINAL_DEPTH = 2 # The final depth should always be 2.
 epsilon = 1e-3
 
 def read_scaled_color_image_Lab(filename):
+	# Read image, cut off alpha channel, only keep rgb.
 	rgb = io.imread(filename)[:,:,:3]
-	lab = color.rgb2lab(rgb)
+	# Resize to 128x128 (temporary until we ensure inputs are 128x128)
+	rgb = misc.imresize(rgb, (128,128))
+	lab = color.rgb2lab(rgb).astype(np.float32)
 	# rescale a and b so that they are in the range (0,1) of the sigmoid function
 	a_min = np.min(lab[:,:,1])-1.0
 	a_max = np.max(lab[:,:,1])+1.0
@@ -289,7 +292,9 @@ def main():
 
 
 	def model(data, train=False):
+		NUM_IMAGES = data.shape[0]
 		# Low level feature network.
+		print 'data shape:', data.shape
 		ll1 = tf.nn.conv2d(data, ll1_weights, [1, ll1_stride, ll1_stride, 1], padding='SAME')
 		ll1 = tf.nn.relu(batch_norm(ll1 + ll1_biases,train))
 
@@ -301,6 +306,7 @@ def main():
 
 		ll4 = tf.nn.conv2d(ll3, ll4_weights, [1, ll4_stride, ll4_stride, 1], padding='SAME')
 		ll4 = tf.nn.relu(batch_norm(ll4 + ll4_biases,train))
+		print 'low level features output shape:', ll4.get_shape().as_list()
 
 		# Global features network.
 		g1 = tf.nn.conv2d(ll4, g1_weights, [1, g1_stride, g1_stride, 1], padding='SAME')
@@ -318,7 +324,7 @@ def main():
 		shape = g4.get_shape().as_list()
 		print 'g4 shape, should be 8 x 8 x 256:', shape
 		g4 = tf.reshape(g4, [shape[0], shape[1] * shape[2] * shape[3]])
-		print 'g4 shape after reshaping to pass into fully connected again'
+		print 'g4 shape after reshaping to pass into fully connected layers'
 		print g4.get_shape().as_list()
 
 		print 'g5 weights shape', g5_weights.get_shape().as_list()
@@ -326,7 +332,6 @@ def main():
 		print 'g5 shape:', g5.get_shape().as_list()
 
 		g6 = tf.nn.relu(batch_norm(tf.matmul(g5, g6_weights) + g6_biases,train,1))
-		print 'g6 shape:', g6.get_shape().as_list()
 
 		g7 = tf.nn.relu(batch_norm(tf.matmul(g6, g7_weights) + g7_biases,train,1))
 
@@ -343,15 +348,15 @@ def main():
 
 		# For fusion layer, the intended input should be IMAGE_SIZE/4 x IMAGE_SIZE/4 x 4*DEPTH,
 		# which is ml2_feat_map_size x ml2_feat_map_size x (ml2_depth + g7_num_hidden)
-		fusion = tf.concat(3,[tf.reshape(tf.tile(g7,[1,ml2_feat_map_size**2]),[2,ml2_feat_map_size,ml2_feat_map_size,g7_num_hidden]),ml2])
+		fusion = tf.concat(3,[tf.reshape(tf.tile(g7,[1,ml2_feat_map_size**2]),[NUM_IMAGES,ml2_feat_map_size,ml2_feat_map_size,g7_num_hidden]),ml2])
 		shape = fusion.get_shape().as_list()
-		print 'fusion shape, should be 16 x 16 x 256:', shape
+		print 'fusion shape, should be 32 x 32 x 256:', shape
 
 		print 'c1 weights shape', c1_weights.get_shape().as_list()
 		c1 = tf.nn.conv2d(fusion, c1_weights, [1, c1_stride, c1_stride, 1], padding='SAME')
 		c1 = tf.nn.relu(batch_norm(c1 + c1_biases,train))
 
-		print 'c1 results shape', c1.get_shape().as_list()
+		print 'c1 shape', c1.get_shape().as_list()
 
 		c2 = tf.nn.conv2d(c1, c2_weights, [1, c2_stride, c2_stride, 1], padding='SAME')
 		c2 = tf.nn.relu(batch_norm(c2 + c2_biases,train))
@@ -380,19 +385,22 @@ def main():
 			# ONLY DURING TESTING, NOT TRAINING:
 			# Upsample again, then merge with original image.
 			c6 = tf.image.resize_nearest_neighbor(c5, [2*c5_shape[1], 2*c5_shape[2]])
-			print 'c6 shape:', c6.get_shape().as_list()
+			print 'not training, c6 shape:', c6.get_shape().as_list()
 			return c6
 
 	# TODO: split up input images into batches, feed them into the model.
 	# For now, can just read in those two images, process them into the grayscale
 	# and the *a*b* color values.
-	#im = read_scaled_color_image_Lab('sailboat_c.png')
-	#im_bw = im[:,:,0].reshape((-1,IMAGE_SIZE,IMAGE_SIZE,1))
-	#im_c = im[:,:,1:].reshape((-1,IMAGE_SIZE,IMAGE_SIZE,2))
-	x = tf.placeholder(tf.float32, [NUM_IMAGES, IMAGE_SIZE*IMAGE_SIZE])
-	x = tf.reshape(x, [-1,IMAGE_SIZE,IMAGE_SIZE,1])
+	im = read_scaled_color_image_Lab('sailboat_c.png')
+	im_bw = im[:,:,0].reshape((-1,IMAGE_SIZE,IMAGE_SIZE,1))
+	im_c = im[:,:,1:].reshape((-1,IMAGE_SIZE,IMAGE_SIZE,2))
 
-	y = tf.placeholder(tf.float32, [NUM_IMAGES, IMAGE_SIZE, IMAGE_SIZE, 2])
+	x = im_bw
+	y = im_c
+	#x = tf.placeholder(tf.float32, [NUM_IMAGES, IMAGE_SIZE*IMAGE_SIZE])
+	#x = tf.reshape(x, [-1,IMAGE_SIZE,IMAGE_SIZE,1])
+
+	#y = tf.placeholder(tf.float32, [NUM_IMAGES, IMAGE_SIZE, IMAGE_SIZE, 2])
 	y_downsample = tf.image.resize_nearest_neighbor(y, [IMAGE_SIZE/2, IMAGE_SIZE/2])
 
 	# Downsample the original images to use to compute loss.
@@ -407,7 +415,7 @@ def main():
 
 	init = tf.initialize_all_variables()
 	sess.run(init)
-	# sess.run(loss)
+	sess.run(loss)
 	print 'loss:', loss
 	'''
 	sess.run(train_step, feed_dict={x: batch_xs, y_: batch_ys})
