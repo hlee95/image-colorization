@@ -431,7 +431,7 @@ def main():
 		# Only need classification layer during training.
 		if train:
 			class1 = tf.nn.relu(batch_norm(tf.matmul(g6, class1_weights) + class1_biases,train,1))
-			class2 = tf.nn.softmax(batch_norm(tf.matmul(class1, class2_weights) + class2_biases,train,1))
+			class2 = tf.matmul(class1, class2_weights) + class2_biases
 
 			# Dropout training.
 			c5 = tf.nn.dropout(c5, .5, seed=SEED)
@@ -447,11 +447,11 @@ def main():
 	train_color_logits, train_classify_logits = model(train_data_node, train=True)
 	# Use mean squared error for loss for colorization network and cross-entropy loss in classification network.
 	loss = tf.reduce_mean(tf.square(train_colors_node - train_color_logits)
-						  - ALPHA * tf.nn.softmax_cross_entropy_with_logits(train_classify_logits, train_class_node))
+						  + ALPHA * tf.nn.softmax_cross_entropy_with_logits(train_classify_logits, train_class_node))
 	optimizer = tf.train.AdadeltaOptimizer(learning_rate=.01).minimize(loss)
 
 	train_prediction = tf.nn.softmax(train_classify_logits)
-	eval_prediction = tf.nn.softmax(model(eval_data, train=False))
+	'''eval_prediction = tf.nn.softmax(model(eval_data, train=False))
 
 	# Initialize variables.
 	init = tf.initialize_all_variables()
@@ -530,7 +530,7 @@ def main():
 	feed_dict = {eval_data: test_data}
 	test_predictions = np.array(sess.run([eval_prediction], feed_dict=feed_dict))
 	test_error = error_rate(test_predictions, test_color_labels)
-	print 'Test error: %f' % test_error
+	print 'Test error: %f' % test_error'''
 
 if __name__ == '__main__':
 	main()
