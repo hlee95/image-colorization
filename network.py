@@ -56,6 +56,8 @@ IMAGE_SIZE = 128
 DEPTH = 64 					# Used to parameterize the depth of each output layer.
 FINAL_DEPTH = 2 			# The final depth should always be 2.
 epsilon = 1e-3
+ALPHA = 1.0/300				# Weight of classification loss
+NUM_CLASSES = 205			# number of classes for classification
 IMAGES_DIR = 'data/' 		# Relative or absolute path to directory where images are.
                  			# IMAGES_DIR should have 3 subdirectories: train, val, test
 
@@ -74,9 +76,9 @@ def read_scaled_color_image_Lab(filename):
 	lab[:,:,2] = (lab[:,:,2]-b_min)/(b_max-b_min)
 	return lab
 
-# Returns an integer label for an image filename.
+# Returns an one-hot vector given an image filename.
 # Used to get labels for the classification network.
-def get_label_from_filename(filename):
+def one_hot_from_filename(filename):
 	# TODO!!!
 	return 0
 
@@ -121,7 +123,7 @@ def main():
 	train_colors_node = tf.placeholder(
 		tf.float32,
 		shape=(BATCH_SIZE, IMAGE_SIZE/2, IMAGE_SIZE/2, 2))
-	train_class_node = tf.placeholder(tf.int64, shape=(BATCH_SIZE,))
+	train_class_node = tf.placeholder(tf.float32, shape=(BATCH_SIZE, NUM_CLASSES))
 	eval_data = tf.placeholder(
 	  	tf.float32,
 	  	shape=(EVAL_BATCH_SIZE, IMAGE_SIZE, IMAGE_SIZE, 1))
@@ -323,9 +325,25 @@ def main():
 	c5_feat_map_size = int(math.ceil(float(c4_feat_map_size) / c5_stride))
 
 	c6_feat_map_size = c6_upsample_factor * c5_feat_map_size
+	
+	######
+	# Classification layer hyperparameters: two fully connected layers.
+	# Expected output size is NUM_CLASSES
+	######
+	# Input consists of second-to-last global feature layer: 4*DEPTH x 1
+	# First fully connected layer.
+	class1_num_hidden = DEPTH*4
+	# Second fully connected layer.
+	class2_num_hidden = NUM_CLASSES
 
-	# TODO: classification layer hyperparameters
+	class1_weights = tf.Variable(tf.truncated_normal(
+									[g6_num_hidden, class1_num_hidden], stddev=0.1))
+	class1_biases = tf.Variable(tf.zeros([class1_num_hidden]))
 
+	class2_weights = tf.Variable(tf.truncated_normal(
+									[class1_num_hidden, class2_num_hidden], stddev=0.1))
+	class2_biases = tf.Variable(tf.zeros([class2_num_hidden]))
+	
 
 	def model(data, train=False):
 		# Low level feature network.
@@ -407,28 +425,33 @@ def main():
 
 		# Note that this uses Sigmoid transfer function instead of ReLU.
 		c5 = tf.nn.conv2d(c4, c5_weights, [1, c5_stride, c5_stride, 1], padding='SAME')
-		c5 = tf.nn.sigmoid(c5 + c5_biases)
+		c5 = tf.nn.sigmoid(batch_norm(c5 + c5_biases,train))
 		c5_shape = c5.get_shape().as_list()
 		# print 'c5 shape:', c5_shape
+
+		class1 = tf.nn.relu(batch_norm(tf.matmul(g6, class1_weights) + class1_biases,train,1))
+
+		class2 = tf.nn.sigmoid(batch_norm(tf.matmul(class1, class2_weights) + class2_biases,train,1))
 
 		if train:
 			# Dropout training.
 			c5 = tf.nn.dropout(c5, .5, seed=SEED)
-			return c5
+			return (c5, class2)
 		else:
 			# ONLY DURING TESTING, NOT TRAINING:
 			# Upsample again, then merge with original image.
 			c6 = tf.image.resize_nearest_neighbor(c5, [2*c5_shape[1], 2*c5_shape[2]])
 			# print 'not training, c6 shape:', c6.get_shape().as_list()
-			return c6
+			return (c6, class2)
 
 	# Use the model to get logits.
-	train_color_logits = model(train_data_node, train=True)
-	# Use mean squared error for loss for colorization network.
-	loss = tf.reduce_mean(tf.square(train_colors_node - train_color_logits))
+	train_color_logits, train_classify_logits = model(train_data_node, train=True)
+	# Use mean squared error for loss for colorization network and cross-entropy loss in classification network.
+	loss = tf.reduce_mean(tf.square(train_colors_node - train_color_logits)
+						  +ALPHA*tf.nn.softmax_cross_entropy_with_logits(train_classify_logits, train_class_node))
 	optimizer = tf.train.AdadeltaOptimizer(learning_rate=.01).minimize(loss)
 
-	train_prediction = tf.nn.softmax(train_color_logits)
+	train_prediction = tf.nn.softmax(train_classify_logits)
 	eval_prediction = tf.nn.softmax(model(eval_data, train=False))
 
 	# Initialize variables.
@@ -438,6 +461,7 @@ def main():
 	val_dir = IMAGES_DIR + 'val/'
 	val_data = np.zeros([NUM_VAL_IMAGES, IMAGE_SIZE, IMAGE_SIZE, 1])
 	val_color_labels = np.zeros([NUM_VAL_IMAGES, IMAGE_SIZE, IMAGE_SIZE, 2])
+	val_classes = np.zeros([NUM_VAL_IMAGES, NUM_CLASSES])
 	val_filenames = os.listdir(val_dir)
 	for file_idx in xrange(len(val_filenames)):
 		filename = val_filenames[file_idx]
@@ -446,6 +470,7 @@ def main():
 		im_c = im[:,:,1:].reshape((-1,IMAGE_SIZE,IMAGE_SIZE,2))
 		val_data[file_idx] = im_bw
 		val_color_labels[file_idx] = im_c
+		val_classes[file_idx] = one_hot_from_filename(filename)
 
 	# Get training data, in batches..
 	train_dir = IMAGES_DIR + 'train/'
@@ -458,13 +483,13 @@ def main():
 		# Create zeroed arrays that we will fill with appropriate image data.
 		bw_images = np.zeros([BATCH_SIZE, IMAGE_SIZE, IMAGE_SIZE, 1], dtype=np.float32)
 		color_features = np.zeros([BATCH_SIZE, IMAGE_SIZE, IMAGE_SIZE, 2], dtype=np.float32)
-		class_labels = np.zeros([BATCH_SIZE])
+		class_labels = np.zeros([BATCH_SIZE, NUM_CLASSES])
 		# Determine where in the global list of files we should start for this batch.
 		start_idx = batch * BATCH_SIZE
 		for i in xrange(BATCH_SIZE):
 			file_idx = start_idx + i
 			filename = train_filenames[file_idx]
-			label = get_label_from_filename(filename)
+			label = one_hot_from_filename(filename)
 			class_labels[i] = label
 			im = read_scaled_color_image_Lab(train_dir + filename)
 			im_bw = im[:,:,0].reshape((-1,IMAGE_SIZE,IMAGE_SIZE,1))
