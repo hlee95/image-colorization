@@ -431,7 +431,7 @@ def main():
 
 		class1 = tf.nn.relu(batch_norm(tf.matmul(g6, class1_weights) + class1_biases,train,1))
 
-		class2 = tf.nn.sigmoid(batch_norm(tf.matmul(class1, class2_weights) + class2_biases,train,1))
+		class2 = tf.nn.softmax(batch_norm(tf.matmul(class1, class2_weights) + class2_biases,train,1))
 
 		if train:
 			# Dropout training.
