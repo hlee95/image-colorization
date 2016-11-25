@@ -45,18 +45,19 @@ def color_small():
 	#accuracy = tf.reduce_mean(tf.cast(correct_prediction, tf.float32))
 	#print(sess.run(accuracy, feed_dict={x: mnist.test.images.reshape(-1,28,28,1), y_: mnist.test.labels}))
 
-SEED = 66478 					# Set to None for random seed.
-NUM_TRAIN_IMAGES = 2 			# Should be 100,000 for actual dataset.
-NUM_TEST_IMAGES = 10000
-NUM_VALIDATION_IMAGES = 10000
-BATCH_SIZE = 2  				# Should be 128 for actual dataset.
-EVAL_BATCH_SIZE = 128
+SEED = 66478 				# Set to None for random seed.
+NUM_TRAIN_IMAGES = 2 		# Should be 100,000 for actual dataset.
+NUM_TEST_IMAGES = 2 		# Should be 10,000 for actual dataset.
+NUM_VAL_IMAGES = 2 			# Should be 10,000 for actual dataset.
+BATCH_SIZE = 1 			# Should be 128 for actual dataset.
+EVAL_BATCH_SIZE = 2
+EVAL_FREQUENCY = 1		# Subject to change...
 IMAGE_SIZE = 128
-DEPTH = 64 						# Used to parameterize the depth of each output layer.
-FINAL_DEPTH = 2 				# The final depth should always be 2.
+DEPTH = 64 					# Used to parameterize the depth of each output layer.
+FINAL_DEPTH = 2 			# The final depth should always be 2.
 epsilon = 1e-3
-IMAGES_DIR = 'data/' 			# Relative or absolute path to directory where images are.
-                     			# IMAGES_DIR should have 3 subdirectories: train, validate, test
+IMAGES_DIR = 'data/' 		# Relative or absolute path to directory where images are.
+                 			# IMAGES_DIR should have 3 subdirectories: train, val, test
 
 def read_scaled_color_image_Lab(filename):
 	# Read image, cut off alpha channel, only keep rgb.
@@ -101,6 +102,13 @@ def batch_norm(inputs, train, axes = 3, decay = 0.999):
         return tf.nn.batch_normalization(inputs,
             pop_mean, pop_var, beta, scale, epsilon)
 
+def error_rate(predictions, labels):
+  """Return the error rate based on dense predictions and sparse labels."""
+  return 100.0 - (
+      100.0 *
+      np.sum(np.argmax(predictions, 1) == labels) /
+      predictions.shape[0])
+
 def main():
 	sess = tf.Session()
 
@@ -114,9 +122,9 @@ def main():
 		tf.float32,
 		shape=(BATCH_SIZE, IMAGE_SIZE/2, IMAGE_SIZE/2, 2))
 	train_class_node = tf.placeholder(tf.int64, shape=(BATCH_SIZE,))
-	# eval_data = tf.placeholder(
-	#   	tf.float32,
-	#   	shape=(EVAL_BATCH_SIZE, IMAGE_SIZE, IMAGE_SIZE, 2))
+	eval_data = tf.placeholder(
+	  	tf.float32,
+	  	shape=(EVAL_BATCH_SIZE, IMAGE_SIZE, IMAGE_SIZE, 1))
 
 	######
 	# Low level feature hyperparameters: 4 convolutional layers.
@@ -332,7 +340,7 @@ def main():
 
 		ll4 = tf.nn.conv2d(ll3, ll4_weights, [1, ll4_stride, ll4_stride, 1], padding='SAME')
 		ll4 = tf.nn.relu(batch_norm(ll4 + ll4_biases,train))
-		print 'low level features output shape:', ll4.get_shape().as_list()
+		# print 'low level features output shape:', ll4.get_shape().as_list()
 
 		# Global features network.
 		g1 = tf.nn.conv2d(ll4, g1_weights, [1, g1_stride, g1_stride, 1], padding='SAME')
@@ -348,14 +356,14 @@ def main():
 		g4 = tf.nn.relu(batch_norm(g4 + g4_biases,train))
 
 		shape = g4.get_shape().as_list()
-		print 'g4 shape, should be 8 x 8 x 256:', shape
+		# print 'g4 shape, should be 8 x 8 x 256:', shape
 		g4 = tf.reshape(g4, [shape[0], shape[1] * shape[2] * shape[3]])
-		print 'g4 shape after reshaping to pass into fully connected layers'
-		print g4.get_shape().as_list()
+		# print 'g4 shape after reshaping to pass into fully connected layers'
+		# print g4.get_shape().as_list()
 
-		print 'g5 weights shape', g5_weights.get_shape().as_list()
+		# print 'g5 weights shape', g5_weights.get_shape().as_list()
 		g5 = tf.nn.relu(batch_norm(tf.matmul(g4, g5_weights) + g5_biases,train,1))
-		print 'g5 shape:', g5.get_shape().as_list()
+		# print 'g5 shape:', g5.get_shape().as_list()
 
 		g6 = tf.nn.relu(batch_norm(tf.matmul(g5, g6_weights) + g6_biases,train,1))
 
@@ -369,39 +377,39 @@ def main():
 		ml2 = tf.nn.relu(batch_norm(ml2 + ml2_biases,train))
 		ml2_shape = ml2.get_shape().as_list()
 		# Check that the fusion layer works.
-		print 'g7 shape:', g7.get_shape().as_list()
-		print 'ml2 shape:', ml2.get_shape().as_list()
+		# print 'g7 shape:', g7.get_shape().as_list()
+		# print 'ml2 shape:', ml2.get_shape().as_list()
 
 		# For fusion layer, the intended input should be IMAGE_SIZE/4 x IMAGE_SIZE/4 x 4*DEPTH,
 		# which is ml2_feat_map_size x ml2_feat_map_size x (ml2_depth + g7_num_hidden)
 		fusion = tf.concat(3,[tf.reshape(tf.tile(g7,[1,ml2_feat_map_size**2]),[ml2_shape[0],ml2_feat_map_size,ml2_feat_map_size,g7_num_hidden]),ml2])
 		shape = fusion.get_shape().as_list()
-		print 'fusion shape, should be 32 x 32 x 256:', shape
+		# print 'fusion shape, should be 32 x 32 x 256:', shape
 
-		print 'c1 weights shape', c1_weights.get_shape().as_list()
+		# print 'c1 weights shape', c1_weights.get_shape().as_list()
 		c1 = tf.nn.conv2d(fusion, c1_weights, [1, c1_stride, c1_stride, 1], padding='SAME')
 		c1 = tf.nn.relu(batch_norm(c1 + c1_biases,train))
 
-		print 'c1 shape', c1.get_shape().as_list()
+		# print 'c1 shape', c1.get_shape().as_list()
 
 		c2 = tf.nn.conv2d(c1, c2_weights, [1, c2_stride, c2_stride, 1], padding='SAME')
 		c2 = tf.nn.relu(batch_norm(c2 + c2_biases,train))
 		c2_shape = c2.get_shape().as_list()
-		print 'c2 shape:', c2_shape
+		# print 'c2 shape:', c2_shape
 
 		# Upsample.
 		c3 = tf.image.resize_nearest_neighbor(c2, [2*c2_shape[1], 2*c2_shape[2]])
-		print 'c3 shape (after upsample):', c3.get_shape().as_list()
+		# print 'c3 shape (after upsample):', c3.get_shape().as_list()
 
 		c4 = tf.nn.conv2d(c3, c4_weights, [1, c4_stride, c4_stride, 1], padding='SAME')
 		c4 = tf.nn.relu(batch_norm(c4 + c4_biases,train))
-		print 'c4 shape:', c4.get_shape().as_list()
+		# print 'c4 shape:', c4.get_shape().as_list()
 
 		# Note that this uses Sigmoid transfer function instead of ReLU.
 		c5 = tf.nn.conv2d(c4, c5_weights, [1, c5_stride, c5_stride, 1], padding='SAME')
 		c5 = tf.nn.sigmoid(c5 + c5_biases)
 		c5_shape = c5.get_shape().as_list()
-		print 'c5 shape:', c5_shape
+		# print 'c5 shape:', c5_shape
 
 		if train:
 			# Dropout training.
@@ -411,7 +419,7 @@ def main():
 			# ONLY DURING TESTING, NOT TRAINING:
 			# Upsample again, then merge with original image.
 			c6 = tf.image.resize_nearest_neighbor(c5, [2*c5_shape[1], 2*c5_shape[2]])
-			print 'not training, c6 shape:', c6.get_shape().as_list()
+			# print 'not training, c6 shape:', c6.get_shape().as_list()
 			return c6
 
 	# Use the model to get logits.
@@ -420,13 +428,29 @@ def main():
 	loss = tf.reduce_mean(tf.square(train_colors_node - train_color_logits))
 	optimizer = tf.train.AdadeltaOptimizer(learning_rate=.01).minimize(loss)
 
+	train_prediction = tf.nn.softmax(train_color_logits)
+	eval_prediction = tf.nn.softmax(model(eval_data))
+
 	# Initialize variables.
 	init = tf.initialize_all_variables()
 	sess.run(init)
+	# Load the validation data.
+	val_dir = IMAGES_DIR + 'val/'
+	val_data = np.zeros([NUM_VAL_IMAGES, IMAGE_SIZE, IMAGE_SIZE, 1])
+	val_color_labels = np.zeros([NUM_VAL_IMAGES, IMAGE_SIZE, IMAGE_SIZE, 2])
+	val_filenames = os.listdir(val_dir)
+	for file_idx in xrange(len(val_filenames)):
+		filename = val_filenames[file_idx]
+		im = read_scaled_color_image_Lab(val_dir + filename)
+		im_bw = im[:,:,0].reshape((-1,IMAGE_SIZE,IMAGE_SIZE,1))
+		im_c = im[:,:,1:].reshape((-1,IMAGE_SIZE,IMAGE_SIZE,2))
+		val_data[file_idx] = im_bw
+		val_color_labels[file_idx] = im_c
+
 	# Get training data, in batches..
 	train_dir = IMAGES_DIR + 'train/'
-	filenames = os.listdir(train_dir)
-	num_images = len(filenames)
+	train_filenames = os.listdir(train_dir)
+	num_images = len(train_filenames)
 	assert(num_images == NUM_TRAIN_IMAGES)
 	num_batches = int(math.ceil(float(num_images/BATCH_SIZE)))
 	# Iterate through batches.
@@ -437,17 +461,18 @@ def main():
 		class_labels = np.zeros([BATCH_SIZE])
 		# Determine where in the global list of files we should start for this batch.
 		start_idx = batch * BATCH_SIZE
-		for file_idx in xrange(start_idx, start_idx + BATCH_SIZE):
-			filename = filenames[file_idx]
+		for i in xrange(BATCH_SIZE):
+			file_idx = start_idx + i
+			filename = train_filenames[file_idx]
 			label = get_label_from_filename(filename)
+			class_labels[i] = label
 			im = read_scaled_color_image_Lab(train_dir + filename)
 			im_bw = im[:,:,0].reshape((-1,IMAGE_SIZE,IMAGE_SIZE,1))
 			im_c = im[:,:,1:].reshape((-1,IMAGE_SIZE,IMAGE_SIZE,2))
-			bw_images[file_idx] = im_bw
-			color_features[file_idx] = im_c
+			bw_images[i] = im_bw
+			color_features[i] = im_c
 
 		x = bw_images
-		print 'x shape:', x.shape
 		y = color_features
 		y_downsample = tf.image.resize_nearest_neighbor(y, [IMAGE_SIZE/2, IMAGE_SIZE/2]).eval(session=sess)
 		feed_dict = {train_data_node: x,
@@ -456,13 +481,19 @@ def main():
 
 		# Train the model.
 		training_labels = model(x, train=True)
-		print 'y_downsample shape:', y_downsample.shape
-		print 'training_labels shape:', training_labels.get_shape().as_list()
+		#print 'y_downsample shape:', y_downsample.shape
+		#print 'training_labels shape:', training_labels.get_shape().as_list()
 		_, l = sess.run([optimizer, loss], feed_dict=feed_dict)
-		print 'loss:', loss
-	'''
-	sess.run(train_step, feed_dict={x: batch_xs, y_: batch_ys})
-	'''
+
+		# Every so often, evaluate.
+		if batch % EVAL_FREQUENCY == 0:
+			feed_dict = {eval_data: val_data}
+			eval_predictions = np.array(sess.run([eval_prediction], feed_dict=feed_dict))
+			error = error_rate(eval_predictions, val_color_labels)
+			print('Step: %d' % batch)
+			print('Validation error: %f' % error)
+
+	# After all the iterations of training are over, test the network.
 
 if __name__ == '__main__':
 	main()
