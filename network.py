@@ -434,7 +434,9 @@ def main():
 		# Only need classification layer during training.
 		if train:
 			class1 = tf.nn.relu(batch_norm(tf.matmul(g6, class1_weights) + class1_biases,train,1))
+			print class1.get_shape()
 			class2 = tf.matmul(class1, class2_weights) + class2_biases
+			print class2.get_shape()
 
 			# Dropout training.
 			c5 = tf.nn.dropout(c5, .5, seed=SEED)
@@ -449,8 +451,7 @@ def main():
 	# Use the model to get logits.
 	train_color_logits, train_classify_logits = model(train_data_node, train=True)
 	# Use mean squared error for loss for colorization network and cross-entropy loss in classification network.
-	loss = tf.reduce_mean(tf.square(train_colors_node - train_color_logits)
-						  + ALPHA * tf.nn.softmax_cross_entropy_with_logits(train_classify_logits, train_class_node))
+	loss = tf.reduce_sum(tf.square(train_colors_node - train_color_logits)) + ALPHA * tf.reduce_sum(tf.nn.softmax_cross_entropy_with_logits(train_classify_logits, train_class_node))
 	optimizer = tf.train.AdadeltaOptimizer(learning_rate=.01).minimize(loss)
 
 	train_prediction = tf.nn.softmax(train_classify_logits)
