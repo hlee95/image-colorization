@@ -46,19 +46,19 @@ def color_small():
 	#print(sess.run(accuracy, feed_dict={x: mnist.test.images.reshape(-1,28,28,1), y_: mnist.test.labels}))
 
 SEED = 66478 				# Set to None for random seed.
-NUM_TRAIN_IMAGES = 2 		# Should be 100,000 for actual dataset.
-NUM_TEST_IMAGES = 2 		# Should be 10,000 for actual dataset.
-NUM_VAL_IMAGES = 2 			# Should be 10,000 for actual dataset.
-BATCH_SIZE = 1 			# Should be 128 for actual dataset.
-EVAL_BATCH_SIZE = 2
-EVAL_FREQUENCY = 1		# Subject to change...
+NUM_TRAIN_IMAGES = 1000000 		# Should be 100,000 for actual dataset.
+NUM_TEST_IMAGES = 10000 		# Should be 10,000 for actual dataset.
+NUM_VAL_IMAGES = 10000			# Should be 10,000 for actual dataset.
+BATCH_SIZE = 128 			# Should be 128 for actual dataset.
+EVAL_BATCH_SIZE = 128
+EVAL_FREQUENCY = 100			# Subject to change...
 IMAGE_SIZE = 128
-DEPTH = 64 					# Used to parameterize the depth of each output layer.
+DEPTH = 64 				# Used to parameterize the depth of each output layer.
 FINAL_DEPTH = 2 			# The final depth should always be 2.
 epsilon = 1e-3
 ALPHA = 1.0/300				# Weight of classification loss
-NUM_CLASSES = 205			# Number of classes for classification
-IMAGES_DIR = 'data/' 		# Relative or absolute path to directory where images are.
+NUM_CLASSES = 100			# Number of classes for classification
+IMAGES_DIR = 'data/images/' 		# Relative or absolute path to directory where images are.
                  			# IMAGES_DIR should have 3 subdirectories: train, val, test
 
 def read_scaled_color_image_Lab(filename):
@@ -79,8 +79,11 @@ def read_scaled_color_image_Lab(filename):
 # Returns an one-hot vector given an image filename.
 # Used to get labels for the classification network.
 def one_hot_from_filename(filename):
-	# TODO!!!
-	return 0
+	pos = int(filename.split('_')[0])
+	print pos
+        one_hot = np.zeros(NUM_CLASSES)
+        one_hot[pos] = 1.0
+        return one_hot
 
 def batch_norm(inputs, train, axes = 3, decay = 0.999):
     scale = tf.Variable(tf.ones([inputs.get_shape()[-1]]))
@@ -451,7 +454,7 @@ def main():
 	optimizer = tf.train.AdadeltaOptimizer(learning_rate=.01).minimize(loss)
 
 	train_prediction = tf.nn.softmax(train_classify_logits)
-	'''eval_prediction = tf.nn.softmax(model(eval_data, train=False))
+	eval_prediction = tf.nn.softmax(model(eval_data, train=False))
 
 	# Initialize variables.
 	init = tf.initialize_all_variables()
@@ -530,7 +533,7 @@ def main():
 	feed_dict = {eval_data: test_data}
 	test_predictions = np.array(sess.run([eval_prediction], feed_dict=feed_dict))
 	test_error = error_rate(test_predictions, test_color_labels)
-	print 'Test error: %f' % test_error'''
+	print 'Test error: %f' % test_error
 
 if __name__ == '__main__':
 	main()
