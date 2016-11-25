@@ -78,7 +78,7 @@ def read_scaled_color_image_Lab(filename):
 	lab[:,:,2] = (lab[:,:,2]-b_min)/(b_max-b_min)
 	return lab
 
-# Returns an one-hot vector given an image filename.
+# Returns a one-hot vector given an image filename.
 # Used to get labels for the classification network.
 def one_hot_from_filename(filename):
 	pos = int(filename.split('_')[0])
@@ -461,20 +461,8 @@ def main():
 	# Initialize variables.
 	init = tf.initialize_all_variables()
 	sess.run(init)
-	# Load the validation data.
-	val_dir = IMAGES_DIR + 'val/'
-	val_data = np.zeros([NUM_VAL_IMAGES, IMAGE_SIZE, IMAGE_SIZE, 1])
-	val_color_labels = np.zeros([NUM_VAL_IMAGES, IMAGE_SIZE, IMAGE_SIZE, 2])
-	val_filenames = os.listdir(val_dir)
-	for file_idx in xrange(NUM_VAL_IMAGES):
-		filename = val_filenames[file_idx]
-		im = read_scaled_color_image_Lab(val_dir + filename)
-		im_bw = im[:,:,0].reshape((-1,IMAGE_SIZE,IMAGE_SIZE,1))
-		im_c = im[:,:,1:].reshape((-1,IMAGE_SIZE,IMAGE_SIZE,2))
-		val_data[file_idx] = im_bw
-		val_color_labels[file_idx] = im_c
 
-	# Get training data, in batches..
+	# Get training data, in batches.
 	train_dir = IMAGES_DIR + 'train/'
 	train_filenames = os.listdir(train_dir)
 	num_images = len(train_filenames)
@@ -512,6 +500,21 @@ def main():
 
 		# Every so often, evaluate.
 		if batch % EVAL_FREQUENCY == 0:
+			# Load the validation data for this batch..
+			val_dir = IMAGES_DIR + 'val/'
+			val_data = np.zeros([EVAL_BATCH_SIZE, IMAGE_SIZE, IMAGE_SIZE, 1])
+			val_color_labels = np.zeros([EVAl_BATCH_SIZE, IMAGE_SIZE, IMAGE_SIZE, 2])
+			val_filenames = os.listdir(val_dir)
+			eval_start_idx = batch // EVAL_FREQUENCY * EVAL_BATCH_SIZE
+			for i in xrange(EVAL_BATCH_SIZE):
+				file_idx = eval_start_idx + i
+				filename = val_filenames[file_idx]
+				im = read_scaled_color_image_Lab(val_dir + filename)
+				im_bw = im[:,:,0].reshape((-1,IMAGE_SIZE,IMAGE_SIZE,1))
+				im_c = im[:,:,1:].reshape((-1,IMAGE_SIZE,IMAGE_SIZE,2))
+				val_data[file_idx] = im_bw
+				val_color_labels[file_idx] = im_c
+
 			feed_dict = {eval_data: val_data}
 			eval_predictions = np.array(sess.run([eval_prediction], feed_dict=feed_dict))
 			error = error_rate(eval_predictions, val_color_labels)
