@@ -46,9 +46,9 @@ def color_small():
 	#print(sess.run(accuracy, feed_dict={x: mnist.test.images.reshape(-1,28,28,1), y_: mnist.test.labels}))
 
 SEED = 66478 				# Set to None for random seed.
-NUM_TRAIN_IMAGES = 1000000 		# Should be 100,000 for actual dataset.
-NUM_TEST_IMAGES = 10000 		# Should be 10,000 for actual dataset.
-NUM_VAL_IMAGES = 10000			# Should be 10,000 for actual dataset.
+NUM_TRAIN_IMAGES = 100000 		# Should be 100,000 for actual dataset.
+NUM_TEST_IMAGES = 100 		# Should be 10,000 for actual dataset.
+NUM_VAL_IMAGES = 100			# Should be 10,000 for actual dataset.
 BATCH_SIZE = 128 			# Should be 128 for actual dataset.
 EVAL_BATCH_SIZE = 128
 EVAL_FREQUENCY = 100			# Subject to change...
@@ -60,6 +60,8 @@ ALPHA = 1.0/300				# Weight of classification loss
 NUM_CLASSES = 100			# Number of classes for classification
 IMAGES_DIR = 'data/images/' 		# Relative or absolute path to directory where images are.
                  			# IMAGES_DIR should have 3 subdirectories: train, val, test
+# Set up random order to access training images.
+TRAINING_IMAGES_INDEX = np.random.permutation(NUM_TRAIN_IMAGES)
 
 def read_scaled_color_image_Lab(filename):
 	# Read image, cut off alpha channel, only keep rgb.
@@ -80,7 +82,6 @@ def read_scaled_color_image_Lab(filename):
 # Used to get labels for the classification network.
 def one_hot_from_filename(filename):
 	pos = int(filename.split('_')[0])
-	print pos
         one_hot = np.zeros(NUM_CLASSES)
         one_hot[pos] = 1.0
         return one_hot
@@ -464,16 +465,14 @@ def main():
 	val_dir = IMAGES_DIR + 'val/'
 	val_data = np.zeros([NUM_VAL_IMAGES, IMAGE_SIZE, IMAGE_SIZE, 1])
 	val_color_labels = np.zeros([NUM_VAL_IMAGES, IMAGE_SIZE, IMAGE_SIZE, 2])
-	val_classes = np.zeros([NUM_VAL_IMAGES, NUM_CLASSES])
 	val_filenames = os.listdir(val_dir)
-	for file_idx in xrange(len(val_filenames)):
+	for file_idx in xrange(NUM_VAL_IMAGES):
 		filename = val_filenames[file_idx]
 		im = read_scaled_color_image_Lab(val_dir + filename)
 		im_bw = im[:,:,0].reshape((-1,IMAGE_SIZE,IMAGE_SIZE,1))
 		im_c = im[:,:,1:].reshape((-1,IMAGE_SIZE,IMAGE_SIZE,2))
 		val_data[file_idx] = im_bw
 		val_color_labels[file_idx] = im_c
-		val_classes[file_idx] = one_hot_from_filename(filename)
 
 	# Get training data, in batches..
 	train_dir = IMAGES_DIR + 'train/'
@@ -490,7 +489,8 @@ def main():
 		# Determine where in the global list of files we should start for this batch.
 		start_idx = batch * BATCH_SIZE
 		for i in xrange(BATCH_SIZE):
-			file_idx = start_idx + i
+                        # Get the next file to look at, based on precalculated random order.
+			file_idx = TRAINING_IMAGES_INDEX[start_idx + i]
 			filename = train_filenames[file_idx]
 			label = one_hot_from_filename(filename)
 			class_labels[i] = label
