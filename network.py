@@ -429,7 +429,7 @@ def main():
 	optimizer = tf.train.AdadeltaOptimizer(learning_rate=.01).minimize(loss)
 
 	train_prediction = tf.nn.softmax(train_color_logits)
-	eval_prediction = tf.nn.softmax(model(eval_data))
+	eval_prediction = tf.nn.softmax(model(eval_data, train=False))
 
 	# Initialize variables.
 	init = tf.initialize_all_variables()
@@ -493,7 +493,23 @@ def main():
 			print('Step: %d' % batch)
 			print('Validation error: %f' % error)
 
-	# After all the iterations of training are over, test the network.
+	# Ready to test!
+	# Load the test data.
+	test_dir = IMAGES_DIR + 'test/'
+	test_data = np.zeros([NUM_TEST_IMAGES, IMAGE_SIZE, IMAGE_SIZE, 1], dtype=np.float32)
+	test_color_labels = np.zeros([NUM_TEST_IMAGES, IMAGE_SIZE, IMAGE_SIZE, 2], dtype=np.float32)
+	test_filenames = os.listdir(test_dir)
+	for file_idx in xrange(len(test_filenames)):
+		filename = test_filenames[file_idx]
+		im = read_scaled_color_image_Lab(val_dir + filename)
+		im_bw = im[:,:,0].reshape((-1,IMAGE_SIZE,IMAGE_SIZE,1))
+		im_c = im[:,:,1:].reshape((-1,IMAGE_SIZE,IMAGE_SIZE,2))
+		test_data[file_idx] = im_bw
+		test_color_labels[file_idx] = im_c
+	feed_dict = {eval_data: test_data}
+	test_predictions = np.array(sess.run([eval_prediction], feed_dict=feed_dict))
+	test_error = error_rate(test_predictions, test_color_labels)
+	print 'Test error: %f' % test_error
 
 if __name__ == '__main__':
 	main()
