@@ -57,7 +57,7 @@ DEPTH = 64 					# Used to parameterize the depth of each output layer.
 FINAL_DEPTH = 2 			# The final depth should always be 2.
 epsilon = 1e-3
 ALPHA = 1.0/300				# Weight of classification loss
-NUM_CLASSES = 205			# number of classes for classification
+NUM_CLASSES = 205			# Number of classes for classification
 IMAGES_DIR = 'data/' 		# Relative or absolute path to directory where images are.
                  			# IMAGES_DIR should have 3 subdirectories: train, val, test
 
@@ -83,7 +83,6 @@ def one_hot_from_filename(filename):
 	return 0
 
 def batch_norm(inputs, train, axes = 3, decay = 0.999):
-
     scale = tf.Variable(tf.ones([inputs.get_shape()[-1]]))
     beta = tf.Variable(tf.zeros([inputs.get_shape()[-1]]))
     pop_mean = tf.Variable(tf.zeros([inputs.get_shape()[-1]]), trainable=False)
@@ -325,7 +324,7 @@ def main():
 	c5_feat_map_size = int(math.ceil(float(c4_feat_map_size) / c5_stride))
 
 	c6_feat_map_size = c6_upsample_factor * c5_feat_map_size
-	
+
 	######
 	# Classification layer hyperparameters: two fully connected layers.
 	# Expected output size is NUM_CLASSES
@@ -343,7 +342,7 @@ def main():
 	class2_weights = tf.Variable(tf.truncated_normal(
 									[class1_num_hidden, class2_num_hidden], stddev=0.1))
 	class2_biases = tf.Variable(tf.zeros([class2_num_hidden]))
-	
+
 
 	def model(data, train=False):
 		# Low level feature network.
@@ -429,11 +428,11 @@ def main():
 		c5_shape = c5.get_shape().as_list()
 		# print 'c5 shape:', c5_shape
 
-		class1 = tf.nn.relu(batch_norm(tf.matmul(g6, class1_weights) + class1_biases,train,1))
-
-		class2 = tf.nn.softmax(batch_norm(tf.matmul(class1, class2_weights) + class2_biases,train,1))
-
+		# Only need classification layer during training.
 		if train:
+			class1 = tf.nn.relu(batch_norm(tf.matmul(g6, class1_weights) + class1_biases,train,1))
+			class2 = tf.nn.softmax(batch_norm(tf.matmul(class1, class2_weights) + class2_biases,train,1))
+
 			# Dropout training.
 			c5 = tf.nn.dropout(c5, .5, seed=SEED)
 			return (c5, class2)
@@ -442,13 +441,13 @@ def main():
 			# Upsample again, then merge with original image.
 			c6 = tf.image.resize_nearest_neighbor(c5, [2*c5_shape[1], 2*c5_shape[2]])
 			# print 'not training, c6 shape:', c6.get_shape().as_list()
-			return (c6, class2)
+			return c6
 
 	# Use the model to get logits.
 	train_color_logits, train_classify_logits = model(train_data_node, train=True)
 	# Use mean squared error for loss for colorization network and cross-entropy loss in classification network.
 	loss = tf.reduce_mean(tf.square(train_colors_node - train_color_logits)
-						  +ALPHA*tf.nn.softmax_cross_entropy_with_logits(train_classify_logits, train_class_node))
+						  - ALPHA * tf.nn.softmax_cross_entropy_with_logits(train_classify_logits, train_class_node))
 	optimizer = tf.train.AdadeltaOptimizer(learning_rate=.01).minimize(loss)
 
 	train_prediction = tf.nn.softmax(train_classify_logits)
@@ -505,9 +504,6 @@ def main():
 					 train_class_node: class_labels}
 
 		# Train the model.
-		training_labels = model(x, train=True)
-		#print 'y_downsample shape:', y_downsample.shape
-		#print 'training_labels shape:', training_labels.get_shape().as_list()
 		_, l = sess.run([optimizer, loss], feed_dict=feed_dict)
 
 		# Every so often, evaluate.
