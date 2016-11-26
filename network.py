@@ -60,8 +60,7 @@ ALPHA = 1.0/300				# Weight of classification loss
 NUM_CLASSES = 100			# Number of classes for classification
 IMAGES_DIR = 'data/images/' 		# Relative or absolute path to directory where images are.
                  			# IMAGES_DIR should have 3 subdirectories: train, val, test
-# Set up random order to access training images.
-TRAINING_IMAGES_INDEX = np.random.permutation(NUM_TRAIN_IMAGES)
+NUM_EPOCHS = 4
 
 def read_scaled_color_image_Lab(filename):
 	# Read image, cut off alpha channel, only keep rgb.
@@ -462,64 +461,68 @@ def main():
 	init = tf.initialize_all_variables()
 	sess.run(init)
 
+	# Get validation data.
+	val_dir = IMAGES_DIR + 'val/'
+	val_data = np.zeros([NUM_VAL_IMAGES, IMAGE_SIZE, IMAGE_SIZE, 1])
+	val_color_labels = np.zeros([NUM_VAL_IMAGES, IMAGE_SIZE, IMAGE_SIZE, 2])
+	val_filenames = os.listdir(val_dir)
+	for file_idx in xrange(NUM_VAL_IMAGES):
+		filename = val_filenames[file_idx]
+		im = read_scaled_color_image_Lab(val_dir + filename)
+		im_bw = im[:,:,0].reshape((-1,IMAGE_SIZE,IMAGE_SIZE,1))
+		im_c = im[:,:,1:].reshape((-1,IMAGE_SIZE,IMAGE_SIZE,2))
+		val_data[file_idx] = im_bw
+		val_color_labels[file_idx] = im_c
+
 	# Get training data, in batches.
 	train_dir = IMAGES_DIR + 'train/'
 	train_filenames = os.listdir(train_dir)
 	num_images = len(train_filenames)
 	assert(num_images == NUM_TRAIN_IMAGES)
 	num_batches = int(math.ceil(float(num_images/BATCH_SIZE)))
-	# Iterate through batches.
-	for batch in xrange(num_batches):
-		# Create zeroed arrays that we will fill with appropriate image data.
-		bw_images = np.zeros([BATCH_SIZE, IMAGE_SIZE, IMAGE_SIZE, 1], dtype=np.float32)
-		color_features = np.zeros([BATCH_SIZE, IMAGE_SIZE, IMAGE_SIZE, 2], dtype=np.float32)
-		class_labels = np.zeros([BATCH_SIZE, NUM_CLASSES])
-		# Determine where in the global list of files we should start for this batch.
-		start_idx = batch * BATCH_SIZE
-		for i in xrange(BATCH_SIZE):
-                        # Get the next file to look at, based on precalculated random order.
-			file_idx = TRAINING_IMAGES_INDEX[start_idx + i]
-			filename = train_filenames[file_idx]
-			label = one_hot_from_filename(filename)
-			class_labels[i] = label
-			im = read_scaled_color_image_Lab(train_dir + filename)
-			im_bw = im[:,:,0].reshape((-1,IMAGE_SIZE,IMAGE_SIZE,1))
-			im_c = im[:,:,1:].reshape((-1,IMAGE_SIZE,IMAGE_SIZE,2))
-			bw_images[i] = im_bw
-			color_features[i] = im_c
+        global_step = 0
+        for epoch in xrange(NUM_EPOCHS):
+        	# Randomize training images.
+        	training_images_index = np.random.permutation(NUM_TRAIN_IMAGES)
+		# Iterate through batches.
+		for batch in xrange(num_batches):
+			# Create zeroed arrays that we will fill with appropriate image data.
+			bw_images = np.zeros([BATCH_SIZE, IMAGE_SIZE, IMAGE_SIZE, 1], dtype=np.float32)
+			color_features = np.zeros([BATCH_SIZE, IMAGE_SIZE, IMAGE_SIZE, 2], dtype=np.float32)
+			class_labels = np.zeros([BATCH_SIZE, NUM_CLASSES])
+			# Determine where in the global list of files we should start for this batch.
+			start_idx = batch * BATCH_SIZE
+			for i in xrange(BATCH_SIZE):
+                        	# Get the next file to look at, based on precalculated random order.
+				file_idx = training_images_index[start_idx + i]
+				filename = train_filenames[file_idx]
+				label = one_hot_from_filename(filename)
+				class_labels[i] = label
+				im = read_scaled_color_image_Lab(train_dir + filename)
+				im_bw = im[:,:,0].reshape((-1,IMAGE_SIZE,IMAGE_SIZE,1))
+				im_c = im[:,:,1:].reshape((-1,IMAGE_SIZE,IMAGE_SIZE,2))
+				bw_images[i] = im_bw
+				color_features[i] = im_c
 
-		x = bw_images
-		y = color_features
-		y_downsample = tf.image.resize_nearest_neighbor(y, [IMAGE_SIZE/2, IMAGE_SIZE/2]).eval(session=sess)
-		feed_dict = {train_data_node: x,
+			x = bw_images
+			y = color_features
+			y_downsample = tf.image.resize_nearest_neighbor(y, [IMAGE_SIZE/2, IMAGE_SIZE/2]).eval(session=sess)
+			feed_dict = {train_data_node: x,
 					 train_colors_node: y_downsample,
 					 train_class_node: class_labels}
 
-		# Train the model.
-		_, l = sess.run([optimizer, loss], feed_dict=feed_dict)
+			# Train the model.
+			_, l = sess.run([optimizer, loss], feed_dict=feed_dict)
+			global_step += 1
 
-		# Every so often, evaluate.
-		if batch % EVAL_FREQUENCY == 0:
-			# Load the validation data for this batch..
-			val_dir = IMAGES_DIR + 'val/'
-			val_data = np.zeros([EVAL_BATCH_SIZE, IMAGE_SIZE, IMAGE_SIZE, 1])
-			val_color_labels = np.zeros([EVAl_BATCH_SIZE, IMAGE_SIZE, IMAGE_SIZE, 2])
-			val_filenames = os.listdir(val_dir)
-			eval_start_idx = batch // EVAL_FREQUENCY * EVAL_BATCH_SIZE
-			for i in xrange(EVAL_BATCH_SIZE):
-				file_idx = eval_start_idx + i
-				filename = val_filenames[file_idx]
-				im = read_scaled_color_image_Lab(val_dir + filename)
-				im_bw = im[:,:,0].reshape((-1,IMAGE_SIZE,IMAGE_SIZE,1))
-				im_c = im[:,:,1:].reshape((-1,IMAGE_SIZE,IMAGE_SIZE,2))
-				val_data[file_idx] = im_bw
-				val_color_labels[file_idx] = im_c
-
-			feed_dict = {eval_data: val_data}
-			eval_predictions = np.array(sess.run([eval_prediction], feed_dict=feed_dict))
-			error = error_rate(eval_predictions, val_color_labels)
-			print('Step: %d' % batch)
-			print('Validation error: %f' % error)
+			# Every so often, evaluate.
+			if batch % EVAL_FREQUENCY == 0:
+				feed_dict = {eval_data: val_data}
+				eval_predictions = np.array(sess.run([eval_prediction], feed_dict=feed_dict))
+				error = error_rate(eval_predictions, val_color_labels)
+				print('Step: %d' % global_step)
+				print('Loss: %f' % l)
+				print('Validation error: %f' % error)
 
 	# Ready to test!
 	# Load the test data.
