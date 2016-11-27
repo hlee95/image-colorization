@@ -1,3 +1,4 @@
+#!/usr/bin/python
 import tensorflow as tf
 import math
 import os
