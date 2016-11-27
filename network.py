@@ -46,20 +46,22 @@ def color_small():
 	#print(sess.run(accuracy, feed_dict={x: mnist.test.images.reshape(-1,28,28,1), y_: mnist.test.labels}))
 
 SEED = 66478 				# Set to None for random seed.
-NUM_TRAIN_IMAGES = 2 		# Should be 100,000 for actual dataset.
-NUM_TEST_IMAGES = 2 		# Should be 10,000 for actual dataset.
-NUM_VAL_IMAGES = 2 			# Should be 10,000 for actual dataset.
-BATCH_SIZE = 1 			# Should be 128 for actual dataset.
-EVAL_BATCH_SIZE = 2
-EVAL_FREQUENCY = 1		# Subject to change...
+NUM_TRAIN_IMAGES = 100000 		# Should be 100,000 for actual dataset.
+NUM_TEST_IMAGES = 100 		# Should be 10,000 for actual dataset.
+NUM_VAL_IMAGES = 100			# Should be 10,000 for actual dataset.
+BATCH_SIZE = 128 			# Should be 128 for actual dataset.
+EVAL_BATCH_SIZE = 128
+EVAL_FREQUENCY = 100			# Subject to change...
 IMAGE_SIZE = 128
-DEPTH = 64 					# Used to parameterize the depth of each output layer.
+DEPTH = 64 				# Used to parameterize the depth of each output layer.
 FINAL_DEPTH = 2 			# The final depth should always be 2.
 epsilon = 1e-3
 ALPHA = 1.0/300				# Weight of classification loss
-NUM_CLASSES = 205			# Number of classes for classification
-IMAGES_DIR = 'data/' 		# Relative or absolute path to directory where images are.
+NUM_CLASSES = 100			# Number of classes for classification
+IMAGES_DIR = 'data/images/' 		# Relative or absolute path to directory where images are.
                  			# IMAGES_DIR should have 3 subdirectories: train, val, test
+CKPT_DIR = './ckpt_dir'
+NUM_EPOCHS = 4
 
 def read_scaled_color_image_Lab(filename):
 	# Read image, cut off alpha channel, only keep rgb.
@@ -76,11 +78,13 @@ def read_scaled_color_image_Lab(filename):
 	lab[:,:,2] = (lab[:,:,2]-b_min)/(b_max-b_min)
 	return lab
 
-# Returns an one-hot vector given an image filename.
+# Returns a one-hot vector given an image filename.
 # Used to get labels for the classification network.
 def one_hot_from_filename(filename):
-	# TODO!!!
-	return 0
+	pos = int(filename.split('_')[0])
+        one_hot = np.zeros(NUM_CLASSES)
+        one_hot[pos] = 1.0
+        return one_hot
 
 def batch_norm(inputs, train, axes = 3, decay = 0.999):
     scale = tf.Variable(tf.ones([inputs.get_shape()[-1]]))
@@ -431,7 +435,9 @@ def main():
 		# Only need classification layer during training.
 		if train:
 			class1 = tf.nn.relu(batch_norm(tf.matmul(g6, class1_weights) + class1_biases,train,1))
-			class2 = tf.nn.softmax(batch_norm(tf.matmul(class1, class2_weights) + class2_biases,train,1))
+			print class1.get_shape()
+			class2 = tf.matmul(class1, class2_weights) + class2_biases
+			print class2.get_shape()
 
 			# Dropout training.
 			c5 = tf.nn.dropout(c5, .5, seed=SEED)
@@ -446,73 +452,80 @@ def main():
 	# Use the model to get logits.
 	train_color_logits, train_classify_logits = model(train_data_node, train=True)
 	# Use mean squared error for loss for colorization network and cross-entropy loss in classification network.
-	loss = tf.reduce_mean(tf.square(train_colors_node - train_color_logits)
-						  - ALPHA * tf.nn.softmax_cross_entropy_with_logits(train_classify_logits, train_class_node))
+	loss = tf.reduce_sum(tf.square(train_colors_node - train_color_logits)) + ALPHA * tf.reduce_sum(tf.nn.softmax_cross_entropy_with_logits(train_classify_logits, train_class_node))
 	optimizer = tf.train.AdadeltaOptimizer(learning_rate=.01).minimize(loss)
 
 	train_prediction = tf.nn.softmax(train_classify_logits)
 	eval_prediction = tf.nn.softmax(model(eval_data, train=False))
 
+	saver = tf.train.Saver()
+	if not os.path.exists(CKPT_DIR):
+		os.makedirs(CKPT_DIR)
+
 	# Initialize variables.
 	init = tf.initialize_all_variables()
 	sess.run(init)
-	# Load the validation data.
+
+	# Get validation data.
 	val_dir = IMAGES_DIR + 'val/'
 	val_data = np.zeros([NUM_VAL_IMAGES, IMAGE_SIZE, IMAGE_SIZE, 1])
 	val_color_labels = np.zeros([NUM_VAL_IMAGES, IMAGE_SIZE, IMAGE_SIZE, 2])
-	val_classes = np.zeros([NUM_VAL_IMAGES, NUM_CLASSES])
 	val_filenames = os.listdir(val_dir)
-	for file_idx in xrange(len(val_filenames)):
+	for file_idx in xrange(NUM_VAL_IMAGES):
 		filename = val_filenames[file_idx]
 		im = read_scaled_color_image_Lab(val_dir + filename)
 		im_bw = im[:,:,0].reshape((-1,IMAGE_SIZE,IMAGE_SIZE,1))
 		im_c = im[:,:,1:].reshape((-1,IMAGE_SIZE,IMAGE_SIZE,2))
 		val_data[file_idx] = im_bw
 		val_color_labels[file_idx] = im_c
-		val_classes[file_idx] = one_hot_from_filename(filename)
 
-	# Get training data, in batches..
+	# Get training data, in batches.
 	train_dir = IMAGES_DIR + 'train/'
 	train_filenames = os.listdir(train_dir)
 	num_images = len(train_filenames)
 	assert(num_images == NUM_TRAIN_IMAGES)
 	num_batches = int(math.ceil(float(num_images/BATCH_SIZE)))
-	# Iterate through batches.
-	for batch in xrange(num_batches):
-		# Create zeroed arrays that we will fill with appropriate image data.
-		bw_images = np.zeros([BATCH_SIZE, IMAGE_SIZE, IMAGE_SIZE, 1], dtype=np.float32)
-		color_features = np.zeros([BATCH_SIZE, IMAGE_SIZE, IMAGE_SIZE, 2], dtype=np.float32)
-		class_labels = np.zeros([BATCH_SIZE, NUM_CLASSES])
-		# Determine where in the global list of files we should start for this batch.
-		start_idx = batch * BATCH_SIZE
-		for i in xrange(BATCH_SIZE):
-			file_idx = start_idx + i
-			filename = train_filenames[file_idx]
-			label = one_hot_from_filename(filename)
-			class_labels[i] = label
-			im = read_scaled_color_image_Lab(train_dir + filename)
-			im_bw = im[:,:,0].reshape((-1,IMAGE_SIZE,IMAGE_SIZE,1))
-			im_c = im[:,:,1:].reshape((-1,IMAGE_SIZE,IMAGE_SIZE,2))
-			bw_images[i] = im_bw
-			color_features[i] = im_c
+	global_step = 0
+	for epoch in xrange(NUM_EPOCHS):
+		# Randomize training images.
+		training_images_index = np.random.permutation(NUM_TRAIN_IMAGES)
+		# Iterate through batches.
+		for batch in xrange(num_batches):
+			# Create zeroed arrays that we will fill with appropriate image data.
+			bw_images = np.zeros([BATCH_SIZE, IMAGE_SIZE, IMAGE_SIZE, 1], dtype=np.float32)
+			color_features = np.zeros([BATCH_SIZE, IMAGE_SIZE, IMAGE_SIZE, 2], dtype=np.float32)
+			class_labels = np.zeros([BATCH_SIZE, NUM_CLASSES])
+			# Determine where in the global list of files we should start for this batch.
+			start_idx = batch * BATCH_SIZE
+			for i in xrange(BATCH_SIZE):
+                        	# Get the next file to look at, based on precalculated random order.
+				file_idx = training_images_index[start_idx + i]
+				filename = train_filenames[file_idx]
+				label = one_hot_from_filename(filename)
+				class_labels[i] = label
+				im = read_scaled_color_image_Lab(train_dir + filename)
+				im_bw = im[:,:,0].reshape((-1,IMAGE_SIZE,IMAGE_SIZE,1))
+				im_c = im[:,:,1:].reshape((-1,IMAGE_SIZE,IMAGE_SIZE,2))
+				bw_images[i] = im_bw
+				color_features[i] = im_c
 
-		x = bw_images
-		y = color_features
-		y_downsample = tf.image.resize_nearest_neighbor(y, [IMAGE_SIZE/2, IMAGE_SIZE/2]).eval(session=sess)
-		feed_dict = {train_data_node: x,
+			y_downsample = tf.image.resize_nearest_neighbor(color_features, [IMAGE_SIZE/2, IMAGE_SIZE/2]).eval(session=sess)
+			feed_dict = {train_data_node: bw_images,
 					 train_colors_node: y_downsample,
 					 train_class_node: class_labels}
 
-		# Train the model.
-		_, l = sess.run([optimizer, loss], feed_dict=feed_dict)
+			# Train the model.
+			_, l = sess.run([optimizer, loss], feed_dict=feed_dict)
+			global_step += 1
 
-		# Every so often, evaluate.
-		if batch % EVAL_FREQUENCY == 0:
-			feed_dict = {eval_data: val_data}
-			eval_predictions = np.array(sess.run([eval_prediction], feed_dict=feed_dict))
-			error = error_rate(eval_predictions, val_color_labels)
-			print('Step: %d' % batch)
-			print('Validation error: %f' % error)
+			# Every so often, evaluate.
+			if batch % EVAL_FREQUENCY == 0:
+				feed_dict = {eval_data: val_data}
+				eval_predictions = np.array(sess.run([eval_prediction], feed_dict=feed_dict))
+				error = error_rate(eval_predictions, val_color_labels)
+				print('Step: %d' % global_step)
+				print('Loss: %f' % l)
+				print('Validation error: %f' % error)
 
 	# Ready to test!
 	# Load the test data.
@@ -531,6 +544,7 @@ def main():
 	test_predictions = np.array(sess.run([eval_prediction], feed_dict=feed_dict))
 	test_error = error_rate(test_predictions, test_color_labels)
 	print 'Test error: %f' % test_error
+	saver.save(sess, CKPT_DIR + '/model.ckpt')
 
 if __name__ == '__main__':
 	main()
