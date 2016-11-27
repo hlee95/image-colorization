@@ -60,6 +60,7 @@ ALPHA = 1.0/300				# Weight of classification loss
 NUM_CLASSES = 100			# Number of classes for classification
 IMAGES_DIR = 'data/images/' 		# Relative or absolute path to directory where images are.
                  			# IMAGES_DIR should have 3 subdirectories: train, val, test
+CKPT_DIR = './ckpt_dir'
 NUM_EPOCHS = 4
 
 def read_scaled_color_image_Lab(filename):
@@ -457,6 +458,10 @@ def main():
 	train_prediction = tf.nn.softmax(train_classify_logits)
 	eval_prediction = tf.nn.softmax(model(eval_data, train=False))
 
+	saver = tf.train.Saver()
+	if not os.path.exists(CKPT_DIR):
+		os.makedirs(CKPT_DIR)
+
 	# Initialize variables.
 	init = tf.initialize_all_variables()
 	sess.run(init)
@@ -480,10 +485,10 @@ def main():
 	num_images = len(train_filenames)
 	assert(num_images == NUM_TRAIN_IMAGES)
 	num_batches = int(math.ceil(float(num_images/BATCH_SIZE)))
-        global_step = 0
-        for epoch in xrange(NUM_EPOCHS):
-        	# Randomize training images.
-        	training_images_index = np.random.permutation(NUM_TRAIN_IMAGES)
+	global_step = 0
+	for epoch in xrange(NUM_EPOCHS):
+		# Randomize training images.
+		training_images_index = np.random.permutation(NUM_TRAIN_IMAGES)
 		# Iterate through batches.
 		for batch in xrange(num_batches):
 			# Create zeroed arrays that we will fill with appropriate image data.
@@ -504,10 +509,8 @@ def main():
 				bw_images[i] = im_bw
 				color_features[i] = im_c
 
-			x = bw_images
-			y = color_features
-			y_downsample = tf.image.resize_nearest_neighbor(y, [IMAGE_SIZE/2, IMAGE_SIZE/2]).eval(session=sess)
-			feed_dict = {train_data_node: x,
+			y_downsample = tf.image.resize_nearest_neighbor(color_features, [IMAGE_SIZE/2, IMAGE_SIZE/2]).eval(session=sess)
+			feed_dict = {train_data_node: bw_images,
 					 train_colors_node: y_downsample,
 					 train_class_node: class_labels}
 
@@ -541,6 +544,7 @@ def main():
 	test_predictions = np.array(sess.run([eval_prediction], feed_dict=feed_dict))
 	test_error = error_rate(test_predictions, test_color_labels)
 	print 'Test error: %f' % test_error
+	saver.save(sess, CKPT_DIR + '/model.ckpt')
 
 if __name__ == '__main__':
 	main()
