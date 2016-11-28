@@ -50,8 +50,8 @@ SEED = 66478 				# Set to None for random seed.
 NUM_TRAIN_IMAGES = 100000 		# Should be 100,000 for actual dataset.
 NUM_TEST_IMAGES = 100 		# Should be 10,000 for actual dataset.
 NUM_VAL_IMAGES = 100			# Should be 10,000 for actual dataset.
-BATCH_SIZE = 128 			# Should be 128 for actual dataset.
-EVAL_BATCH_SIZE = 128
+BATCH_SIZE = 100 			# Should be 128 for actual dataset.
+EVAL_BATCH_SIZE = 100
 EVAL_FREQUENCY = 100			# Subject to change...
 IMAGE_SIZE = 128
 DEPTH = 64 				# Used to parameterize the depth of each output layer.
@@ -110,10 +110,7 @@ def batch_norm(inputs, train, axes = 3, decay = 0.999):
 
 def error_rate(predictions, labels):
   """Return the error rate based on dense predictions and sparse labels."""
-  return 100.0 - (
-      100.0 *
-      np.sum(np.argmax(predictions, 1) == labels) /
-      predictions.shape[0])
+  return np.sum(abs(np.subtract(labels,predictions)))
 
 def main():
 	sess = tf.Session()
