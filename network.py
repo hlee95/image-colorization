@@ -110,7 +110,7 @@ def batch_norm(inputs, train, axes = 3, decay = 0.999):
 
 def error_rate(predictions, labels):
   """Return the error rate based on dense predictions and sparse labels."""
-  return np.sum(abs(np.subtract(labels,predictions)))
+  return np.mean(abs(np.subtract(labels,predictions)))
 
 def main():
 	sess = tf.Session()
@@ -454,7 +454,7 @@ def main():
 	optimizer = tf.train.AdadeltaOptimizer(learning_rate=.01).minimize(loss)
 
 	train_prediction = tf.nn.softmax(train_classify_logits)
-	eval_prediction = tf.nn.softmax(model(eval_data, train=False))
+	eval_prediction = model(eval_data, train=False)
 
 	saver = tf.train.Saver()
 	if not os.path.exists(CKPT_DIR):
