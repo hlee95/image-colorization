@@ -62,7 +62,7 @@ NUM_CLASSES = 100			# Number of classes for classification
 IMAGES_DIR = 'data/images/' 		# Relative or absolute path to directory where images are.
                  			# IMAGES_DIR should have 3 subdirectories: train, val, test
 CKPT_DIR = './ckpt_dir'
-NUM_EPOCHS = 0
+NUM_EPOCHS = 3
 
 def read_scaled_color_image_Lab(filename):
 	# Read image, cut off alpha channel, only keep rgb.
@@ -515,7 +515,7 @@ def main(trainNetwork, inputFilename, outputFilename):
 					im_c = im[:,:,1:].reshape((-1,IMAGE_SIZE,IMAGE_SIZE,2))
 					bw_images[i] = im_bw
 					color_features[i] = im_c
-	
+
 				y_downsample = tf.image.resize_nearest_neighbor(color_features, [IMAGE_SIZE/2, IMAGE_SIZE/2]).eval(session=sess)
 				feed_dict = {train_data_node: bw_images,
 						 train_colors_node: y_downsample,
@@ -523,10 +523,10 @@ def main(trainNetwork, inputFilename, outputFilename):
 
 				# Train the model.
 				_, l = sess.run([optimizer, loss], feed_dict=feed_dict)
-			
+
 				# Update step count and save variables
 				step += 1
-	                        print('\tGlobal step: %d' % step)
+	            print('\tGlobal step: %d' % step)
 				if step%100 == 0:
 					print('Saving variables')
 					saver.save(sess, CKPT_DIR + '/model.ckpt', write_meta_graph=False)
@@ -566,14 +566,11 @@ def main(trainNetwork, inputFilename, outputFilename):
 		test_im[:,:,1:] = test_predictions[0,0]
 		io.imsave('output.png', color.lab2rgb(test_im))
 	else:
-		# Evaluate input image and colorize it
+		# Evaluate input image and colorize it.
 		im = read_scaled_color_image_Lab(inputFilename)
 		im_bw = im[:,:,0].reshape((1,IMAGE_SIZE,IMAGE_SIZE,1))
 		feed_dict = {eval_data: im_bw}
-		net = model(tf.placeholder(
-	  		tf.float32,
-	  		shape=(1, IMAGE_SIZE, IMAGE_SIZE, 1)), train=False)
-		res = np.array(sess.run([net], feed_dict=feed_dict))
+		res = np.array(sess.run([eval_prediction], feed_dict=feed_dict))
 		im[:,:,1:] = res
 		rgb = color.lab2rgb(im)
 		io.imsave(outputFilename, rgb)
@@ -594,4 +591,3 @@ if __name__ == '__main__':
 		print 'must specify input file if not training'
 	else:
 		main(train, inputFilename, outputFilename)
-	#color_small()
