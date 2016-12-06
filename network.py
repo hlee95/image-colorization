@@ -62,7 +62,7 @@ NUM_CLASSES = 100			# Number of classes for classification
 IMAGES_DIR = 'data/images/' 		# Relative or absolute path to directory where images are.
                  			# IMAGES_DIR should have 3 subdirectories: train, val, test
 CKPT_DIR = './ckpt_dir'
-NUM_EPOCHS = 4
+NUM_EPOCHS = 0
 
 def read_scaled_color_image_Lab(filename):
 	# Read image, cut off alpha channel, only keep rgb.
@@ -112,7 +112,7 @@ def error_rate(predictions, labels):
   """Return the error rate based on dense predictions and sparse labels."""
   return np.mean(abs(np.subtract(labels,predictions)))
 
-def main():
+def main(trainNetwork, inputFilename, outputFilename):
 	sess = tf.Session()
 
 	# This is where training samples and labels are fed to the graph.
@@ -485,82 +485,113 @@ def main():
 		im_c = im[:,:,1:].reshape((-1,IMAGE_SIZE,IMAGE_SIZE,2))
 		val_data[file_idx] = im_bw
 		val_color_labels[file_idx] = im_c
+	if trainNetwork:
+		# Get training data, in batches.
+		train_dir = IMAGES_DIR + 'train/'
+		train_filenames = os.listdir(train_dir)
+		num_images = len(train_filenames)
+		assert(num_images == NUM_TRAIN_IMAGES)
+		num_batches = int(math.ceil(float(num_images/BATCH_SIZE)))
 
-	# Get training data, in batches.
-	train_dir = IMAGES_DIR + 'train/'
-	train_filenames = os.listdir(train_dir)
-	num_images = len(train_filenames)
-	assert(num_images == NUM_TRAIN_IMAGES)
-	num_batches = int(math.ceil(float(num_images/BATCH_SIZE)))
+		for epoch in xrange(NUM_EPOCHS):
+			# Randomize training images.
+			training_images_index = np.random.permutation(NUM_TRAIN_IMAGES)
+			# Iterate through batches.
+			for batch in xrange(num_batches):
+				# Create zeroed arrays that we will fill with appropriate image data.
+				bw_images = np.zeros([BATCH_SIZE, IMAGE_SIZE, IMAGE_SIZE, 1], dtype=np.float32)
+				color_features = np.zeros([BATCH_SIZE, IMAGE_SIZE, IMAGE_SIZE, 2], dtype=np.float32)
+				class_labels = np.zeros([BATCH_SIZE, NUM_CLASSES])
+				# Determine where in the global list of files we should start for this batch.
+				start_idx = batch * BATCH_SIZE
+				for i in xrange(BATCH_SIZE):
+        	                	# Get the next file to look at, based on precalculated random order.
+					file_idx = training_images_index[start_idx + i]
+					filename = train_filenames[file_idx]
+					label = one_hot_from_filename(filename)
+					class_labels[i] = label
+					im = read_scaled_color_image_Lab(train_dir + filename)
+					im_bw = im[:,:,0].reshape((-1,IMAGE_SIZE,IMAGE_SIZE,1))
+					im_c = im[:,:,1:].reshape((-1,IMAGE_SIZE,IMAGE_SIZE,2))
+					bw_images[i] = im_bw
+					color_features[i] = im_c
+	
+				y_downsample = tf.image.resize_nearest_neighbor(color_features, [IMAGE_SIZE/2, IMAGE_SIZE/2]).eval(session=sess)
+				feed_dict = {train_data_node: bw_images,
+						 train_colors_node: y_downsample,
+						 train_class_node: class_labels}
 
-	for epoch in xrange(NUM_EPOCHS):
-		# Randomize training images.
-		training_images_index = np.random.permutation(NUM_TRAIN_IMAGES)
-		# Iterate through batches.
-		for batch in xrange(num_batches):
-			# Create zeroed arrays that we will fill with appropriate image data.
-			bw_images = np.zeros([BATCH_SIZE, IMAGE_SIZE, IMAGE_SIZE, 1], dtype=np.float32)
-			color_features = np.zeros([BATCH_SIZE, IMAGE_SIZE, IMAGE_SIZE, 2], dtype=np.float32)
-			class_labels = np.zeros([BATCH_SIZE, NUM_CLASSES])
-			# Determine where in the global list of files we should start for this batch.
-			start_idx = batch * BATCH_SIZE
-			for i in xrange(BATCH_SIZE):
-                        	# Get the next file to look at, based on precalculated random order.
-				file_idx = training_images_index[start_idx + i]
-				filename = train_filenames[file_idx]
-				label = one_hot_from_filename(filename)
-				class_labels[i] = label
-				im = read_scaled_color_image_Lab(train_dir + filename)
-				im_bw = im[:,:,0].reshape((-1,IMAGE_SIZE,IMAGE_SIZE,1))
-				im_c = im[:,:,1:].reshape((-1,IMAGE_SIZE,IMAGE_SIZE,2))
-				bw_images[i] = im_bw
-				color_features[i] = im_c
-
-			y_downsample = tf.image.resize_nearest_neighbor(color_features, [IMAGE_SIZE/2, IMAGE_SIZE/2]).eval(session=sess)
-			feed_dict = {train_data_node: bw_images,
-					 train_colors_node: y_downsample,
-					 train_class_node: class_labels}
-
-			# Train the model.
-			_, l = sess.run([optimizer, loss], feed_dict=feed_dict)
+				# Train the model.
+				_, l = sess.run([optimizer, loss], feed_dict=feed_dict)
 			
-			# Update step count and save variables
-			step += 1
-                        print('\tGlobal step: %d' % step)
-			if step%100 == 0:
-				print('Saving variables')
-				saver.save(sess, CKPT_DIR + '/model.ckpt', write_meta_graph=False)
-			global_step.assign(step).eval(session=sess)
+				# Update step count and save variables
+				step += 1
+	                        print('\tGlobal step: %d' % step)
+				if step%100 == 0:
+					print('Saving variables')
+					saver.save(sess, CKPT_DIR + '/model.ckpt', write_meta_graph=False)
+				global_step.assign(step).eval(session=sess)
 
-			# Every so often, evaluate.
-			if batch % EVAL_FREQUENCY == 0:
-				feed_dict = {eval_data: val_data}
-				eval_predictions = np.array(sess.run([eval_prediction], feed_dict=feed_dict))
-				error = error_rate(eval_predictions, val_color_labels)
-				print('Step: %d' % step)
-				print('Loss: %f' % l)
-				print('Validation error: %f' % error)
+				# Every so often, evaluate.
+				if batch % EVAL_FREQUENCY == 0:
+					feed_dict = {eval_data: val_data}
+					eval_predictions = np.array(sess.run([eval_prediction], feed_dict=feed_dict))
+					error = error_rate(eval_predictions, val_color_labels)
+					print('Step: %d' % step)
+					print('Loss: %f' % l)
+					print('Validation error: %f' % error)
 
-	# Ready to test!
-	# Load the test data.
-	test_dir = IMAGES_DIR + 'test/'
-	test_data = np.zeros([NUM_TEST_IMAGES, IMAGE_SIZE, IMAGE_SIZE, 1], dtype=np.float32)
-	test_color_labels = np.zeros([NUM_TEST_IMAGES, IMAGE_SIZE, IMAGE_SIZE, 2], dtype=np.float32)
-	test_filenames = os.listdir(test_dir)
-	for file_idx in xrange(len(test_filenames)):
-		filename = test_filenames[file_idx]
-		im = read_scaled_color_image_Lab(val_dir + filename)
-		im_bw = im[:,:,0].reshape((-1,IMAGE_SIZE,IMAGE_SIZE,1))
-		im_c = im[:,:,1:].reshape((-1,IMAGE_SIZE,IMAGE_SIZE,2))
-		test_data[file_idx] = im_bw
-		test_color_labels[file_idx] = im_c
-	feed_dict = {eval_data: test_data}
-	test_predictions = np.array(sess.run([eval_prediction], feed_dict=feed_dict))
-	test_error = error_rate(test_predictions, test_color_labels)
-	print 'Test error: %f' % test_error
-        print 'Saving'
-	saver.save(sess, CKPT_DIR + '/model.ckpt', write_meta_graph=False)
+		# Ready to test!
+		# Load the test data.
+		test_dir = IMAGES_DIR + 'test/'
+		test_data = np.zeros([NUM_TEST_IMAGES, IMAGE_SIZE, IMAGE_SIZE, 1], dtype=np.float32)
+		test_color_labels = np.zeros([NUM_TEST_IMAGES, IMAGE_SIZE, IMAGE_SIZE, 2], dtype=np.float32)
+		test_filenames = os.listdir(test_dir)
+		for file_idx in xrange(100):
+			filename = test_filenames[file_idx]
+			im = read_scaled_color_image_Lab(val_dir + filename)
+			im_bw = im[:,:,0].reshape((-1,IMAGE_SIZE,IMAGE_SIZE,1))
+			im_c = im[:,:,1:].reshape((-1,IMAGE_SIZE,IMAGE_SIZE,2))
+			test_data[file_idx] = im_bw
+			test_color_labels[file_idx] = im_c
+		feed_dict = {eval_data: test_data}
+		test_predictions = np.array(sess.run([eval_prediction], feed_dict=feed_dict))
+		test_error = error_rate(test_predictions, test_color_labels)
+		print 'Test error: %f' % test_error
+        	print 'Saving'
+		saver.save(sess, CKPT_DIR + '/model.ckpt', write_meta_graph=False)
+		test_im = np.zeros([IMAGE_SIZE, IMAGE_SIZE, 3], dtype=np.float32)
+		print test_data.shape
+		test_im[:,:,0] = np.squeeze(test_data[0]/255.0)
+		test_im[:,:,1:] = test_predictions[0,0]
+		io.imsave('output.png', color.lab2rgb(test_im))
+	else:
+		# Evaluate input image and colorize it
+		im = read_scaled_color_image_Lab(inputFilename)
+		im_bw = im[:,:,0].reshape((1,IMAGE_SIZE,IMAGE_SIZE,1))
+		feed_dict = {eval_data: im_bw}
+		net = model(tf.placeholder(
+	  		tf.float32,
+	  		shape=(1, IMAGE_SIZE, IMAGE_SIZE, 1)), train=False)
+		res = np.array(sess.run([net], feed_dict=feed_dict))
+		im[:,:,1:] = res
+		rgb = color.lab2rgb(im)
+		io.imsave(outputFilename, rgb)
 
 if __name__ == '__main__':
-	main()
+	train = False
+	inputFilename = ''
+	outputFilename = 'result.png'
+	args = sys.argv[1:]
+	for i in range(len(args)):
+		if args[i] == '--train':
+			train = True
+		if args[i] == '-i':
+			inputFilename = args[i+1]
+		if args[i] == '-o':
+			outputFilename = args[i+1]
+	if not train and inputFilename == '':
+		print 'must specify input file if not training'
+	else:
+		main(train, inputFilename, outputFilename)
 	#color_small()
