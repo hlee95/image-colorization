@@ -456,6 +456,7 @@ def main():
 	train_prediction = tf.nn.softmax(train_classify_logits)
 	eval_prediction = tf.nn.softmax(model(eval_data, train=False))
 
+	global_step = tf.Variable(0, name='global_step', trainable=False)
 	saver = tf.train.Saver()
 	if not os.path.exists(CKPT_DIR):
 		os.makedirs(CKPT_DIR)
@@ -463,6 +464,14 @@ def main():
 	# Initialize variables.
 	init = tf.initialize_all_variables()
 	sess.run(init)
+
+	# Restore variables if possible
+	ckpt = tf.train.get_checkpoint_state(CKPT_DIR)
+	if ckpt and ckpt.model_checkpoint_path:
+		print(ckpt.model_checkpoint_path)
+		saver.restore(sess, ckpt.model_checkpoint_path)
+	# hanna: Start will be 0 when we first begin, and then will increment.
+	step = global_step.eval(session=sess)
 
 	# Get validation data.
 	val_dir = IMAGES_DIR + 'val/'
@@ -483,7 +492,7 @@ def main():
 	num_images = len(train_filenames)
 	assert(num_images == NUM_TRAIN_IMAGES)
 	num_batches = int(math.ceil(float(num_images/BATCH_SIZE)))
-	global_step = 0
+
 	for epoch in xrange(NUM_EPOCHS):
 		# Randomize training images.
 		training_images_index = np.random.permutation(NUM_TRAIN_IMAGES)
@@ -514,14 +523,21 @@ def main():
 
 			# Train the model.
 			_, l = sess.run([optimizer, loss], feed_dict=feed_dict)
-			global_step += 1
+			
+			# Update step count and save variables
+			step += 1
+                        print('\tGlobal step: %d' % step)
+			if step%100 == 0:
+				print('Saving variables')
+				saver.save(sess, CKPT_DIR + '/model.ckpt', write_meta_graph=False)
+			global_step.assign(step).eval(session=sess)
 
 			# Every so often, evaluate.
 			if batch % EVAL_FREQUENCY == 0:
 				feed_dict = {eval_data: val_data}
 				eval_predictions = np.array(sess.run([eval_prediction], feed_dict=feed_dict))
 				error = error_rate(eval_predictions, val_color_labels)
-				print('Step: %d' % global_step)
+				print('Step: %d' % step)
 				print('Loss: %f' % l)
 				print('Validation error: %f' % error)
 
@@ -542,7 +558,8 @@ def main():
 	test_predictions = np.array(sess.run([eval_prediction], feed_dict=feed_dict))
 	test_error = error_rate(test_predictions, test_color_labels)
 	print 'Test error: %f' % test_error
-	saver.save(sess, CKPT_DIR + '/model.ckpt')
+        print 'Saving'
+	saver.save(sess, CKPT_DIR + '/model.ckpt', write_meta_graph=False)
 
 if __name__ == '__main__':
 	main()
