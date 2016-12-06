@@ -128,7 +128,6 @@ def main(trainNetwork, inputFilename, outputFilename):
 	eval_data = tf.placeholder(
 	  	tf.float32,
 	  	shape=(EVAL_BATCH_SIZE, IMAGE_SIZE, IMAGE_SIZE, 1))
-
 	######
 	# Low level feature hyperparameters: 4 convolutional layers.
 	######
@@ -461,15 +460,24 @@ def main(trainNetwork, inputFilename, outputFilename):
 	if not os.path.exists(CKPT_DIR):
 		os.makedirs(CKPT_DIR)
 
-	# Initialize variables.
-	init = tf.initialize_all_variables()
-	sess.run(init)
-
-	# Restore variables if possible
+	# Restore variables if possible.
 	ckpt = tf.train.get_checkpoint_state(CKPT_DIR)
 	if ckpt and ckpt.model_checkpoint_path:
 		print(ckpt.model_checkpoint_path)
 		saver.restore(sess, ckpt.model_checkpoint_path)
+	# Defined this below the saver, to avoid issues with restoring a variable
+	# that has no value saved.
+        test_input_image = tf.placeholder(
+		tf.float32,
+		shape=(1, IMAGE_SIZE, IMAGE_SIZE, 1))
+	# sess.run(tf.initialize_variables([test_input_image]))
+        # Used to get predictions for a single test input image. 
+	test_prediction = model(test_input_image, train=False)
+	
+	# initialize variables
+	init = tf.initialize_all_variables()
+	sess.run(init)
+
 	# hanna: Start will be 0 when we first begin, and then will increment.
 	step = global_step.eval(session=sess)
 
@@ -526,7 +534,7 @@ def main(trainNetwork, inputFilename, outputFilename):
 
 				# Update step count and save variables
 				step += 1
-	            print('\tGlobal step: %d' % step)
+	            		print('\tGlobal step: %d' % step)
 				if step%100 == 0:
 					print('Saving variables')
 					saver.save(sess, CKPT_DIR + '/model.ckpt', write_meta_graph=False)
@@ -568,10 +576,20 @@ def main(trainNetwork, inputFilename, outputFilename):
 	else:
 		# Evaluate input image and colorize it.
 		im = read_scaled_color_image_Lab(inputFilename)
+		
+		np.set_printoptions(precision=3, suppress=True)
+		'''print('Original image')
+		print(im[:,:,0])
+		print('A component')
+		print(im[:,:,1])'''
 		im_bw = im[:,:,0].reshape((1,IMAGE_SIZE,IMAGE_SIZE,1))
-		feed_dict = {eval_data: im_bw}
-		res = np.array(sess.run([eval_prediction], feed_dict=feed_dict))
+                feed_dict = {test_input_image: im_bw}
+		res = np.array(sess.run(test_prediction, feed_dict = feed_dict))
 		im[:,:,1:] = res
+		'''print('\nNew A component')
+		print(im[:,:,1])'''
+		
+		im[:,:,0] = im[:,:,0]/255.0
 		rgb = color.lab2rgb(im)
 		io.imsave(outputFilename, rgb)
 
