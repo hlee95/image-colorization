@@ -61,8 +61,8 @@ ALPHA = 1.0/300				# Weight of classification loss
 NUM_CLASSES = 100			# Number of classes for classification
 IMAGES_DIR = 'data/images/' 		# Relative or absolute path to directory where images are.
                  			# IMAGES_DIR should have 3 subdirectories: train, val, test
-CKPT_DIR = './ckpt_dir'
-NUM_EPOCHS = 3
+CKPT_DIR = './new_ckpt_dir'
+NUM_EPOCHS = 1
 
 def read_scaled_color_image_Lab(filename):
 	# Read image, cut off alpha channel, only keep rgb.
@@ -78,6 +78,22 @@ def read_scaled_color_image_Lab(filename):
 	lab[:,:,1] = (lab[:,:,1]-a_min)/(a_max-a_min)
 	lab[:,:,2] = (lab[:,:,2]-b_min)/(b_max-b_min)
 	return lab
+
+def read_scaled_color_image_Lab_extrema(filename):
+	# Read image, cut off alpha channel, only keep rgb.
+	rgb = io.imread(filename)[:,:,:3]
+	# Resize to 128x128 (temporary until we ensure inputs are 128x128)
+	rgb = misc.imresize(rgb, (128,128))
+	lab = color.rgb2lab(rgb).astype(np.float32)
+	# rescale a and b so that they are in the range (0,1) of the sigmoid function
+	a_min = np.min(lab[:,:,1])-1.0
+	a_max = np.max(lab[:,:,1])+1.0
+	b_min = np.min(lab[:,:,2])-1.0
+	b_max = np.max(lab[:,:,2])+1.0
+	lab[:,:,1] = (lab[:,:,1]-a_min)/(a_max-a_min)
+	lab[:,:,2] = (lab[:,:,2]-b_min)/(b_max-b_min)
+	return (lab, a_max, a_min, b_max, b_min)
+
 
 # Returns a one-hot vector given an image filename.
 # Used to get labels for the classification network.
@@ -128,6 +144,10 @@ def main(trainNetwork, inputFilename, outputFilename):
 	eval_data = tf.placeholder(
 	  	tf.float32,
 	  	shape=(EVAL_BATCH_SIZE, IMAGE_SIZE, IMAGE_SIZE, 1))
+	# Used to get an output on a single test image..
+        test_input_image = tf.placeholder(
+		tf.float32,
+		shape=(1, IMAGE_SIZE, IMAGE_SIZE, 1))
 	######
 	# Low level feature hyperparameters: 4 convolutional layers.
 	######
@@ -436,8 +456,6 @@ def main(trainNetwork, inputFilename, outputFilename):
 			class2 = tf.matmul(class1, class2_weights) + class2_biases
 			print class2.get_shape()
 
-			# Dropout training.
-			c5 = tf.nn.dropout(c5, .5, seed=SEED)
 			return (c5, class2)
 		else:
 			# ONLY DURING TESTING, NOT TRAINING:
@@ -454,6 +472,7 @@ def main(trainNetwork, inputFilename, outputFilename):
 
 	train_prediction = tf.nn.softmax(train_classify_logits)
 	eval_prediction = model(eval_data, train=False)
+	test_prediction = model(test_input_image, train=False)
 
 	global_step = tf.Variable(0, name='global_step', trainable=False)
 	saver = tf.train.Saver()
@@ -465,20 +484,13 @@ def main(trainNetwork, inputFilename, outputFilename):
 	if ckpt and ckpt.model_checkpoint_path:
 		print(ckpt.model_checkpoint_path)
 		saver.restore(sess, ckpt.model_checkpoint_path)
-	# Defined this below the saver, to avoid issues with restoring a variable
-	# that has no value saved.
-        test_input_image = tf.placeholder(
-		tf.float32,
-		shape=(1, IMAGE_SIZE, IMAGE_SIZE, 1))
-	# sess.run(tf.initialize_variables([test_input_image]))
-        # Used to get predictions for a single test input image. 
-	test_prediction = model(test_input_image, train=False)
 	
 	# initialize variables
 	init = tf.initialize_all_variables()
 	sess.run(init)
 
-	# hanna: Start will be 0 when we first begin, and then will increment.
+	# Start will be 0 when we first begin, and then it will increment
+	# with each batch, and be saved persistently.
 	step = global_step.eval(session=sess)
 
 	# Get validation data.
@@ -512,17 +524,26 @@ def main(trainNetwork, inputFilename, outputFilename):
 				class_labels = np.zeros([BATCH_SIZE, NUM_CLASSES])
 				# Determine where in the global list of files we should start for this batch.
 				start_idx = batch * BATCH_SIZE
+				# TEMPORARY: Keep track of max and min values for a and b.
+				a_max = -sys.maxsize - 1
+				b_max = -sys.maxsize - 1
+				a_min = sys.maxsize
+				b_min = sys.maxsize
 				for i in xrange(BATCH_SIZE):
         	                	# Get the next file to look at, based on precalculated random order.
 					file_idx = training_images_index[start_idx + i]
 					filename = train_filenames[file_idx]
 					label = one_hot_from_filename(filename)
 					class_labels[i] = label
-					im = read_scaled_color_image_Lab(train_dir + filename)
+					im, amax, amin, bmax, bmin = read_scaled_color_image_Lab_extrema(train_dir + filename)
 					im_bw = im[:,:,0].reshape((-1,IMAGE_SIZE,IMAGE_SIZE,1))
 					im_c = im[:,:,1:].reshape((-1,IMAGE_SIZE,IMAGE_SIZE,2))
 					bw_images[i] = im_bw
 					color_features[i] = im_c
+					a_max = max(a_max, amax)
+					a_min = min(a_min, amin)
+					b_max = max(b_max, bmax)
+					b_min = min(b_min, bmin)
 
 				y_downsample = tf.image.resize_nearest_neighbor(color_features, [IMAGE_SIZE/2, IMAGE_SIZE/2]).eval(session=sess)
 				feed_dict = {train_data_node: bw_images,
@@ -535,6 +556,7 @@ def main(trainNetwork, inputFilename, outputFilename):
 				# Update step count and save variables
 				step += 1
 	            		print('\tGlobal step: %d' % step)
+				print('\na_max %f\na_min %f\nb_max %f\nb_min %f' % (a_max, a_min, b_max, b_min))
 				if step%100 == 0:
 					print('Saving variables')
 					saver.save(sess, CKPT_DIR + '/model.ckpt', write_meta_graph=False)
@@ -578,16 +600,16 @@ def main(trainNetwork, inputFilename, outputFilename):
 		im = read_scaled_color_image_Lab(inputFilename)
 		
 		np.set_printoptions(precision=3, suppress=True)
-		'''print('Original image')
+		print('Original image')
 		print(im[:,:,0])
 		print('A component')
-		print(im[:,:,1])'''
+		print(im[:,:,1])
 		im_bw = im[:,:,0].reshape((1,IMAGE_SIZE,IMAGE_SIZE,1))
                 feed_dict = {test_input_image: im_bw}
 		res = np.array(sess.run(test_prediction, feed_dict = feed_dict))
 		im[:,:,1:] = res
-		'''print('\nNew A component')
-		print(im[:,:,1])'''
+		print('\nNew A component')
+		print(im[:,:,1])
 		
 		im[:,:,0] = im[:,:,0]/255.0
 		rgb = color.lab2rgb(im)
