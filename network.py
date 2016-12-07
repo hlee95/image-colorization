@@ -48,7 +48,7 @@ def color_small():
 	#print(sess.run(accuracy, feed_dict={x: mnist.test.images.reshape(-1,28,28,1), y_: mnist.test.labels}))
 
 SEED = 66478 				# Set to None for random seed.
-NUM_TRAIN_IMAGES = 1000 		# Should be 100,000 for actual dataset.
+NUM_TRAIN_IMAGES = 10000 		# Should be 100,000 for actual dataset.
 NUM_TEST_IMAGES = 100 		# Should be 10,000 for actual dataset.
 NUM_VAL_IMAGES = 100			# Should be 10,000 for actual dataset.
 BATCH_SIZE = 100 			# Should be 128 for actual dataset.
@@ -76,6 +76,8 @@ def read_scaled_color_image_Lab(filename):
 	# rescale a and b so that they are in the range (0,1) of the sigmoid function
 	lab[:,:,1] = (lab[:,:,1]-AB_MIN)/(AB_MAX - AB_MIN)
 	lab[:,:,2] = (lab[:,:,2]-AB_MIN)/(AB_MAX - AB_MIN)
+	assert(np.max(lab[:,:,1:]) <= 1)
+	assert(np.min(lab[:,:,1:]) >= 0)
 	return lab
 
 # Returns a one-hot vector given an image filename.
@@ -374,6 +376,7 @@ def main(trainNetwork, inputFilename, outputFilename):
 
 
 	def model(data, train=False):
+		data = data - 50
 		# Low level feature network.
 		ll1 = tf.nn.conv2d(data, ll1_weights, [1, ll1_stride, ll1_stride, 1], padding='SAME')
 		ll1 = tf.nn.relu(batch_norm(ll1 + ll1_biases,train))
@@ -475,7 +478,7 @@ def main(trainNetwork, inputFilename, outputFilename):
 	train_color_logits, train_classify_logits = model(train_data_node, train=True)
 	# Use mean squared error for loss for colorization network and cross-entropy loss in classification network.
 	loss = tf.reduce_sum(tf.square(train_colors_node - train_color_logits)) + ALPHA * tf.reduce_sum(tf.nn.softmax_cross_entropy_with_logits(train_classify_logits, train_class_node))
-	optimizer = tf.train.AdadeltaOptimizer(learning_rate=.01).minimize(loss)
+	optimizer = tf.train.AdadeltaOptimizer(learning_rate=.00001, rho=.90).minimize(loss)
 
 	# Commented out because it's not actually used... should remove?
 	# train_prediction = tf.nn.softmax(train_classify_logits)
