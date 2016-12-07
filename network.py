@@ -8,6 +8,7 @@ from scipy import ndimage
 import matplotlib.pyplot as plt
 from scipy import misc
 from skimage import io, color
+import skimage
 
 def color_small():
 	'''
@@ -17,7 +18,7 @@ def color_small():
 	x = tf.reshape(x, [-1,64,64,1])
 
 	W = tf.Variable(tf.truncated_normal(
-									[5, 5, 1, 3], stddev=0.1))
+									[5, 5, 1, 3], stddev=TEST_STD_DEV))
 	b = tf.Variable(tf.zeros([3]))
 
 	level = tf.nn.conv2d(x, W, [1, 1, 1, 1], padding='SAME')
@@ -47,7 +48,7 @@ def color_small():
 	#print(sess.run(accuracy, feed_dict={x: mnist.test.images.reshape(-1,28,28,1), y_: mnist.test.labels}))
 
 SEED = 66478 				# Set to None for random seed.
-NUM_TRAIN_IMAGES = 5000 		# Should be 100,000 for actual dataset.
+NUM_TRAIN_IMAGES = 1000 		# Should be 100,000 for actual dataset.
 NUM_TEST_IMAGES = 100 		# Should be 10,000 for actual dataset.
 NUM_VAL_IMAGES = 100			# Should be 10,000 for actual dataset.
 BATCH_SIZE = 100 			# Should be 128 for actual dataset.
@@ -65,13 +66,13 @@ CKPT_DIR = './new_ckpt_dir'
 NUM_EPOCHS = 1
 AB_MAX = 127				# For scaling a and b color channel values to between 0 and 1.
 AB_MIN = -128
+TEST_STD_DEV = .05
 
 def read_scaled_color_image_Lab(filename):
 	# Read image, cut off alpha channel, only keep rgb.
 	rgb = io.imread(filename)[:,:,:3]
-	# Resize to 128x128 (temporary until we ensure inputs are 128x128)
-	rgb = misc.imresize(rgb, (128,128))
-	lab = color.rgb2lab(rgb).astype(np.float32)
+	rgb = np.array(skimage.img_as_float(rgb))
+	lab = color.rgb2lab(rgb)#.astype(np.float32)
 	# rescale a and b so that they are in the range (0,1) of the sigmoid function
 	lab[:,:,1] = (lab[:,:,1]-AB_MIN)/(AB_MAX - AB_MIN)
 	lab[:,:,2] = (lab[:,:,2]-AB_MIN)/(AB_MAX - AB_MIN)
@@ -106,6 +107,9 @@ def batch_norm(inputs, train, axes = 3, decay = 0.999):
         return tf.nn.batch_normalization(inputs,
             pop_mean, pop_var, beta, scale, epsilon)
 
+def get_stddev(filter_size, previous_layer_depth):
+ 	return 1.0 / math.sqrt(filter_size**2 * previous_layer_depth)
+
 def error_rate(predictions, labels):
   """Return the error rate based on dense predictions and sparse labels."""
   return np.mean(abs(np.subtract(labels,predictions)))
@@ -139,40 +143,44 @@ def main(trainNetwork, inputFilename, outputFilename):
 	ll1_filter_size = 3
 	ll1_depth = DEPTH
 	ll1_stride = 2
+	ll1_stddev = get_stddev(ll1_filter_size, 1)
 
 	# Output is IMAGE_SIZE/2 x IMAGE_SIZE/2 x 2*DEPTH
 	ll2_filter_size = 3
 	ll2_depth = 2*DEPTH
 	ll2_stride = 1
+	ll2_stddev = get_stddev(ll2_filter_size, ll1_depth)
 
 	# Output is IMAGE_SIZE/4 x IMAGE_SIZE/4 x 2*DEPTH
 	ll3_filter_size = 3
 	ll3_depth = 2*DEPTH
 	ll3_stride = 2
+	ll3_stddev = get_stddev(ll3_filter_size, ll2_depth)
 
 	# Output is IMAGE_SIZE/4 x IMAGE_SIZE/4 x 4*DEPTH
 	ll4_filter_size = 3
 	ll4_depth = 4*DEPTH
 	ll4_stride = 1
+	ll4_stddev = get_stddev(ll4_filter_size, ll3_depth)
 
 	# experiment with different values for the standard deviation
 	ll1_weights = tf.Variable(tf.truncated_normal(
-									[ll1_filter_size, ll1_filter_size, 1, ll1_depth], stddev=0.1))
+									[ll1_filter_size, ll1_filter_size, 1, ll1_depth], stddev=ll1_stddev))
 	ll1_biases = tf.Variable(tf.zeros([ll1_depth]))
 	ll1_feat_map_size = int(math.ceil(float(IMAGE_SIZE) / ll1_stride))
 
 	ll2_weights = tf.Variable(tf.truncated_normal(
-									[ll2_filter_size, ll2_filter_size, ll1_depth, ll2_depth], stddev=0.1))
+									[ll2_filter_size, ll2_filter_size, ll1_depth, ll2_depth], stddev=ll2_stddev))
 	ll2_biases = tf.Variable(tf.zeros([ll2_depth]))
 	ll2_feat_map_size = int(math.ceil(float(ll1_feat_map_size) / ll2_stride))
 
 	ll3_weights = tf.Variable(tf.truncated_normal(
-									[ll3_filter_size, ll3_filter_size, ll2_depth, ll3_depth], stddev=0.1))
+									[ll3_filter_size, ll3_filter_size, ll2_depth, ll3_depth], stddev=ll3_stddev))
 	ll3_biases = tf.Variable(tf.zeros([ll3_depth]))
 	ll3_feat_map_size = int(math.ceil(float(ll2_feat_map_size) / ll3_stride))
 
 	ll4_weights = tf.Variable(tf.truncated_normal(
-									[ll4_filter_size, ll4_filter_size, ll3_depth, ll4_depth], stddev=0.1))
+									[ll4_filter_size, ll4_filter_size, ll3_depth, ll4_depth], stddev=ll4_stddev))
 	ll4_biases = tf.Variable(tf.zeros([ll4_depth]))
 	ll4_feat_map_size = int(math.ceil(float(ll3_feat_map_size) / ll4_stride))
 
@@ -185,59 +193,68 @@ def main(trainNetwork, inputFilename, outputFilename):
 	g1_filter_size = 3
 	g1_depth = 4*DEPTH
 	g1_stride = 2
+	g1_feat_map_size = int(math.ceil(float(ll4_feat_map_size) / g1_stride))
+	g1_stddev = get_stddev(g1_filter_size, ll4_depth)
 
 	# Output is IMAGE_SIZE/8 x IMAGE_SIZE/8 x 4*DEPTH
 	g2_filter_size = 3
 	g2_depth = 4*DEPTH
 	g2_stride = 1
+	g2_feat_map_size = int(math.ceil(float(g1_feat_map_size) / g2_stride))
+	g2_stddev = get_stddev(g2_filter_size, g1_depth)
 
 	# Output is IMAGE_SIZE/8 x IMAGE_SIZE/8 x 4*DEPTH
 	g3_filter_size = 3
 	g3_depth = 4*DEPTH
 	g3_stride = 2
+	g3_feat_map_size = int(math.ceil(float(g2_feat_map_size) / g3_stride))
+	g3_stddev = get_stddev(g3_filter_size, g2_depth)
 
 	# Output is IMAGE_SIZES/8 x IMAGE_SIZE/8 x 4*DEPTH
 	g4_filter_size = 3
 	g4_depth = 4*DEPTH
 	g4_stride = 1
+	g4_stddev = get_stddev(g4_filter_size, g3_depth)
+	g4_feat_map_size = int(math.ceil(float(g3_feat_map_size) / g4_stride))
 
 	# First fully connected layer, outputs 8*DEPTH.
 	g5_num_hidden = 8*DEPTH
+	g5_stddev = get_stddev(g4_feat_map_size, g4_depth)
+	
 	# Second fully connected layer.
 	g6_num_hidden = 4*DEPTH
+	g6_stddev = 1.0 / math.sqrt(g5_num_hidden)
+
 	# Third fully connected layer.
 	g7_num_hidden = 2*DEPTH
+	g7_stddev = 1.0 / math.sqrt(g6_num_hidden)
 
 	g1_weights = tf.Variable(tf.truncated_normal(
-									[g1_filter_size, g1_filter_size, ll4_depth, g1_depth], stddev=0.1))
+									[g1_filter_size, g1_filter_size, ll4_depth, g1_depth], stddev=g1_stddev))
 	g1_biases = tf.Variable(tf.zeros([g1_depth]))
-	g1_feat_map_size = int(math.ceil(float(ll4_feat_map_size) / g1_stride))
 
 	g2_weights = tf.Variable(tf.truncated_normal(
-									[g2_filter_size, g2_filter_size, g1_depth, g2_depth], stddev=0.1))
+									[g2_filter_size, g2_filter_size, g1_depth, g2_depth], stddev=g2_stddev))
 	g2_biases = tf.Variable(tf.zeros([g2_depth]))
-	g2_feat_map_size = int(math.ceil(float(g1_feat_map_size) / g2_stride))
 
 	g3_weights = tf.Variable(tf.truncated_normal(
-									[g3_filter_size, g3_filter_size, g2_depth, g3_depth], stddev=0.1))
+									[g3_filter_size, g3_filter_size, g2_depth, g3_depth], stddev=g3_stddev))
 	g3_biases = tf.Variable(tf.zeros([g3_depth]))
-	g3_feat_map_size = int(math.ceil(float(g2_feat_map_size) / g3_stride))
 
 	g4_weights = tf.Variable(tf.truncated_normal(
-									[g4_filter_size, g4_filter_size, g3_depth, g4_depth], stddev=0.1))
+									[g4_filter_size, g4_filter_size, g3_depth, g4_depth], stddev=g4_stddev))
 	g4_biases = tf.Variable(tf.zeros([g4_depth]))
-	g4_feat_map_size = int(math.ceil(float(g3_feat_map_size) / g4_stride))
 
 	g5_weights = tf.Variable(tf.truncated_normal(
-									[g4_feat_map_size * g4_feat_map_size * g4_depth, g5_num_hidden], stddev=0.1))
+									[g4_feat_map_size * g4_feat_map_size * g4_depth, g5_num_hidden], stddev=g5_stddev))
 	g5_biases = tf.Variable(tf.zeros([g5_num_hidden]))
 
 	g6_weights = tf.Variable(tf.truncated_normal(
-									[g5_num_hidden, g6_num_hidden], stddev=0.1))
+									[g5_num_hidden, g6_num_hidden], stddev=g6_stddev))
 	g6_biases = tf.Variable(tf.zeros([g6_num_hidden]))
 
 	g7_weights = tf.Variable(tf.truncated_normal(
-									[g6_num_hidden, g7_num_hidden], stddev=0.1))
+									[g6_num_hidden, g7_num_hidden], stddev=g7_stddev))
 	g7_biases = tf.Variable(tf.zeros([g7_num_hidden]))
 
 	######
@@ -249,19 +266,21 @@ def main(trainNetwork, inputFilename, outputFilename):
 	ml1_filter_size = 3
 	ml1_depth = 4*DEPTH
 	ml1_stride = 1
+	ml1_stddev = get_stddev(ml1_filter_size, ll4_depth)
 
 	# Output is IMAGE_SIZE/4 x IMAGE_SIZE/4 x 2*DEPTH
 	ml2_filter_size = 3
 	ml2_depth = 2*DEPTH
 	ml2_stride = 1
+	ml2_stddev = get_stddev(ml2_filter_size, ml1_depth)
 
 	ml1_weights = tf.Variable(tf.truncated_normal(
-									[ml1_filter_size, ml1_filter_size, ll4_depth, ml1_depth], stddev=0.1))
+									[ml1_filter_size, ml1_filter_size, ll4_depth, ml1_depth], stddev=ml1_stddev))
 	ml1_biases = tf.Variable(tf.zeros([ml1_depth]))
 	ml1_feat_map_size = int(math.ceil(float(ll4_feat_map_size) / ml1_stride))
 
 	ml2_weights = tf.Variable(tf.truncated_normal(
-									[ml2_filter_size, ml2_filter_size, ml1_depth, ml2_depth], stddev=0.1))
+									[ml2_filter_size, ml2_filter_size, ml1_depth, ml2_depth], stddev=ml2_stddev))
 	ml2_biases = tf.Variable(tf.zeros([ml2_depth]))
 	ml2_feat_map_size = int(math.ceil(float(ml1_feat_map_size) / ml2_stride))
 
@@ -278,11 +297,13 @@ def main(trainNetwork, inputFilename, outputFilename):
 	c1_num_hidden = 2*DEPTH
 	c1_filter_size = 3
 	c1_stride = 1
+	c1_stddev = get_stddev(c1_filter_size, 2*ml2_depth)
 
 	# Output is IMAGE_SIZE/4 x IMAGE_SIZE/4 x DEPTH
 	c2_filter_size = 3
 	c2_depth = DEPTH
 	c2_stride = 1
+	c2_stddev = get_stddev(c2_filter_size, c1_num_hidden)
 
 	# Output is IMAGE_SIZE/2 x IMAGE_SIZE/2 x DEPTH
 	c3_upsample_factor = 2
@@ -292,11 +313,13 @@ def main(trainNetwork, inputFilename, outputFilename):
 	c4_filter_size = 3
 	c4_depth = DEPTH/2
 	c4_stride = 1
+	c4_stddev = get_stddev(c4_filter_size, c3_depth)
 
 	# Output is IMAGE_SIZE/2 x IMAGE_SIZE/2 x 2
 	c5_filter_size = 3
 	c5_depth = FINAL_DEPTH
 	c5_stride = 1
+	c5_stddev = get_stddev(c5_filter_size, c4_depth)
 
 	# Output is IMAGE_SIZE x IMAGE_SIZE x 2. Represents the chrominance.
 	# Only used for testing and producing results, not for training.
@@ -306,23 +329,23 @@ def main(trainNetwork, inputFilename, outputFilename):
 	# Set up the weights for the fusion layer.
 	# W should be IMAGE_SIZE/4 x IMAGE_SIZE/4 x 4*DEPTH x 2*DEPTH
 	c1_weights = tf.Variable(tf.truncated_normal(
-									[c1_filter_size, c1_filter_size, 2*c1_num_hidden, c1_num_hidden], stddev=0.1))
+									[c1_filter_size, c1_filter_size, 2*c1_num_hidden, c1_num_hidden], stddev=c1_stddev))
 	c1_biases = tf.Variable(tf.zeros([c1_num_hidden]))
 
 	c2_weights = tf.Variable(tf.truncated_normal(
-									[c2_filter_size, c2_filter_size, c1_num_hidden, c2_depth], stddev=0.1))
+									[c2_filter_size, c2_filter_size, c1_num_hidden, c2_depth], stddev=c2_stddev))
 	c2_biases = tf.Variable(tf.zeros([c2_depth]))
 	c2_feat_map_size = int(math.ceil(float(ml2_feat_map_size) / c2_stride))
 
 	c3_feat_map_size = c3_upsample_factor * c2_feat_map_size
 
 	c4_weights = tf.Variable(tf.truncated_normal(
-									[c4_filter_size, c4_filter_size, c3_depth, c4_depth], stddev=0.1))
+									[c4_filter_size, c4_filter_size, c3_depth, c4_depth], stddev=c4_stddev))
 	c4_biases = tf.Variable(tf.zeros([c4_depth]))
 	c4_feat_map_size = int(math.ceil(float(c3_feat_map_size) / c4_stride))
 
 	c5_weights = tf.Variable(tf.truncated_normal(
-									[c5_filter_size, c5_filter_size, c4_depth, c5_depth], stddev=0.1))
+									[c5_filter_size, c5_filter_size, c4_depth, c5_depth], stddev=c5_stddev))
 	c5_biases = tf.Variable(tf.zeros([c5_depth]))
 	c5_feat_map_size = int(math.ceil(float(c4_feat_map_size) / c5_stride))
 
@@ -335,15 +358,18 @@ def main(trainNetwork, inputFilename, outputFilename):
 	# Input consists of second-to-last global feature layer: 4*DEPTH x 1
 	# First fully connected layer.
 	class1_num_hidden = DEPTH*4
+	class1_stddev = 1.0 / math.sqrt(g6_num_hidden)
+
 	# Second fully connected layer.
 	class2_num_hidden = NUM_CLASSES
+	class2_stddev = 1.0 / math.sqrt(class1_num_hidden)
 
 	class1_weights = tf.Variable(tf.truncated_normal(
-									[g6_num_hidden, class1_num_hidden], stddev=0.1))
+									[g6_num_hidden, class1_num_hidden], stddev=class1_stddev))
 	class1_biases = tf.Variable(tf.zeros([class1_num_hidden]))
 
 	class2_weights = tf.Variable(tf.truncated_normal(
-									[class1_num_hidden, class2_num_hidden], stddev=0.1))
+									[class1_num_hidden, class2_num_hidden], stddev=class2_stddev))
 	class2_biases = tf.Variable(tf.zeros([class2_num_hidden]))
 
 
@@ -426,17 +452,16 @@ def main(trainNetwork, inputFilename, outputFilename):
 		# print 'c4 shape:', c4.get_shape().as_list()
 
 		# Note that this uses Sigmoid transfer function instead of ReLU.
-		c5 = tf.nn.conv2d(c4, c5_weights, [1, c5_stride, c5_stride, 1], padding='SAME')
-		c5 = tf.nn.sigmoid(batch_norm(c5 + c5_biases,train))
+		c5_prime = tf.nn.conv2d(c4, c5_weights, [1, c5_stride, c5_stride, 1], padding='SAME')
+		c5 = tf.nn.sigmoid(batch_norm(c5_prime + c5_biases,train))
 		c5_shape = c5.get_shape().as_list()
 		# print 'c5 shape:', c5_shape
-
 		# Only need classification layer during training.
 		if train:
 			class1 = tf.nn.relu(batch_norm(tf.matmul(g6, class1_weights) + class1_biases,train,1))
-			print class1.get_shape()
+			# print class1.get_shape()
 			class2 = tf.matmul(class1, class2_weights) + class2_biases
-			print class2.get_shape()
+			# print class2.get_shape()
 
 			return (c5, class2)
 		else:
@@ -452,11 +477,17 @@ def main(trainNetwork, inputFilename, outputFilename):
 	loss = tf.reduce_sum(tf.square(train_colors_node - train_color_logits)) + ALPHA * tf.reduce_sum(tf.nn.softmax_cross_entropy_with_logits(train_classify_logits, train_class_node))
 	optimizer = tf.train.AdadeltaOptimizer(learning_rate=.01).minimize(loss)
 
-	train_prediction = tf.nn.softmax(train_classify_logits)
+	# Commented out because it's not actually used... should remove?
+	# train_prediction = tf.nn.softmax(train_classify_logits)
 	eval_prediction = model(eval_data, train=False)
 	test_prediction = model(test_input_image, train=False)
 
 	global_step = tf.Variable(0, name='global_step', trainable=False)
+
+	# initialize variables
+	init = tf.initialize_all_variables()
+	sess.run(init)
+
 	saver = tf.train.Saver()
 	if not os.path.exists(CKPT_DIR):
 		os.makedirs(CKPT_DIR)
@@ -464,12 +495,12 @@ def main(trainNetwork, inputFilename, outputFilename):
 	# Restore variables if possible.
 	ckpt = tf.train.get_checkpoint_state(CKPT_DIR)
 	if ckpt and ckpt.model_checkpoint_path:
-		print(ckpt.model_checkpoint_path)
+		print('Restoring variables from: %s' % ckpt.model_checkpoint_path)
 		saver.restore(sess, ckpt.model_checkpoint_path)
 	
 	# initialize variables
-	init = tf.initialize_all_variables()
-	sess.run(init)
+	#init = tf.initialize_all_variables()
+	#sess.run(init)
 
 	# Start will be 0 when we first begin, and then it will increment
 	# with each batch, and be saved persistently.
@@ -526,7 +557,6 @@ def main(trainNetwork, inputFilename, outputFilename):
 
 				# Train the model.
 				_, l = sess.run([optimizer, loss], feed_dict=feed_dict)
-
 				# Update step count and save variables
 				step += 1
 	            		print('\tGlobal step: %d' % step)
@@ -550,7 +580,7 @@ def main(trainNetwork, inputFilename, outputFilename):
 		test_data = np.zeros([NUM_TEST_IMAGES, IMAGE_SIZE, IMAGE_SIZE, 1], dtype=np.float32)
 		test_color_labels = np.zeros([NUM_TEST_IMAGES, IMAGE_SIZE, IMAGE_SIZE, 2], dtype=np.float32)
 		test_filenames = os.listdir(test_dir)
-		for file_idx in xrange(100):
+		for file_idx in xrange(100): #TODO: should change to NUM_TEST_IMAGES
 			filename = test_filenames[file_idx]
 			im = read_scaled_color_image_Lab(val_dir + filename)
 			im_bw = im[:,:,0].reshape((-1,IMAGE_SIZE,IMAGE_SIZE,1))
@@ -569,27 +599,47 @@ def main(trainNetwork, inputFilename, outputFilename):
 		test_im[:,:,1:] = test_predictions[0,0]
 		io.imsave('output.png', color.lab2rgb(test_im))
 		'''
-	else:
 		# Evaluate input image and colorize it.
 		im = read_scaled_color_image_Lab(inputFilename)
-		
+
 		np.set_printoptions(precision=3, suppress=True)
-		'''
 		print('Original image')
 		print(im[:,:,0])
 		print('A component')
 		print(im[:,:,1])
-		'''
 		im_bw = im[:,:,0].reshape((1,IMAGE_SIZE,IMAGE_SIZE,1))
+		# print(np.min(im_bw), np.max(im_bw))
+                feed_dict = {test_input_image: im_bw}
+		res = np.array(sess.run(test_prediction, feed_dict = feed_dict))
+		res = res * 1.0 * (AB_MAX - AB_MIN) + AB_MIN
+		im[:,:,1:] = res
+		print('\nNew A component')
+		print(im[:,:,1])
+		print(np.min(im[:,:,1]))
+		print(np.max(im[:,:,1]))
+		rgb = color.lab2rgb(im)
+		io.imsave(outputFilename, rgb)
+
+
+	else:
+		# Evaluate input image and colorize it.
+		im = read_scaled_color_image_Lab(inputFilename)
+
+		np.set_printoptions(precision=3, suppress=True)
+		print('Original image')
+		print(im[:,:,0])
+		print('A component')
+		print(im[:,:,1])
+		im_bw = im[:,:,0].reshape((1,IMAGE_SIZE,IMAGE_SIZE,1))
+		print(np.min(im_bw), np.max(im_bw))
                 feed_dict = {test_input_image: im_bw}
 		res = np.array(sess.run(test_prediction, feed_dict = feed_dict))
 		res = res * (AB_MAX - AB_MIN) + AB_MIN
 		im[:,:,1:] = res
-		'''
 		print('\nNew A component')
 		print(im[:,:,1])
-		'''
 		rgb = color.lab2rgb(im)
+		rgb = skimage.img_as_ubyte(rgb)
 		io.imsave(outputFilename, rgb)
 
 if __name__ == '__main__':
