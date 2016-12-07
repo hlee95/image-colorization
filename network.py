@@ -48,12 +48,12 @@ def color_small():
 	#print(sess.run(accuracy, feed_dict={x: mnist.test.images.reshape(-1,28,28,1), y_: mnist.test.labels}))
 
 SEED = 66478 				# Set to None for random seed.
-NUM_TRAIN_IMAGES = 10000 		# Should be 100,000 for actual dataset.
-NUM_TEST_IMAGES = 100 		# Should be 10,000 for actual dataset.
-NUM_VAL_IMAGES = 100			# Should be 10,000 for actual dataset.
+NUM_TRAIN_IMAGES = 20000 		# Should be 100,000 for actual dataset.
+NUM_VAL_IMAGES = 500			# Should be 10,000 for actual dataset.
+NUM_TEST_IMAGES = NUM_VAL_IMAGES 			# Should be 10,000 for actual dataset.
 BATCH_SIZE = 100 			# Should be 128 for actual dataset.
-EVAL_BATCH_SIZE = 100
-EVAL_FREQUENCY = 5			# Subject to change...
+EVAL_BATCH_SIZE = NUM_VAL_IMAGES
+EVAL_FREQUENCY = 25			# Subject to change...
 IMAGE_SIZE = 128
 DEPTH = 64 				# Used to parameterize the depth of each output layer.
 FINAL_DEPTH = 2 			# The final depth should always be 2.
@@ -618,8 +618,8 @@ def main(trainNetwork, inputFilename, outputFilename):
 		im[:,:,1:] = res
 		print('\nNew A component')
 		print(im[:,:,1])
-		print(np.min(im[:,:,1]))
-		print(np.max(im[:,:,1]))
+		print(np.min(im[:,:,1:]))
+		print(np.max(im[:,:,1:]))
 		rgb = color.lab2rgb(im)
 		io.imsave(outputFilename, rgb)
 
@@ -637,12 +637,14 @@ def main(trainNetwork, inputFilename, outputFilename):
 		print(np.min(im_bw), np.max(im_bw))
                 feed_dict = {test_input_image: im_bw}
 		res = np.array(sess.run(test_prediction, feed_dict = feed_dict))
-		res = res * (AB_MAX - AB_MIN) + AB_MIN
+		res = res * 1.0 * (AB_MAX - AB_MIN) + AB_MIN
 		im[:,:,1:] = res
 		print('\nNew A component')
 		print(im[:,:,1])
+		print(np.min(im[:,:,1:]))
+		print(np.max(im[:,:,1:]))
 		rgb = color.lab2rgb(im)
-		rgb = skimage.img_as_ubyte(rgb)
+		# rgb = skimage.img_as_ubyte(rgb)
 		io.imsave(outputFilename, rgb)
 
 if __name__ == '__main__':
