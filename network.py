@@ -48,35 +48,43 @@ def color_small():
 	#print(sess.run(accuracy, feed_dict={x: mnist.test.images.reshape(-1,28,28,1), y_: mnist.test.labels}))
 
 SEED = 66478 				# Set to None for random seed.
-NUM_TRAIN_IMAGES = 20000 		# Should be 100,000 for actual dataset.
-NUM_VAL_IMAGES = 500			# Should be 10,000 for actual dataset.
+NUM_TRAIN_IMAGES = 100000 		# Should be 100,000 for actual dataset.
+NUM_VAL_IMAGES = 1000			# Should be 10,000 for actual dataset.
 NUM_TEST_IMAGES = NUM_VAL_IMAGES 			# Should be 10,000 for actual dataset.
-BATCH_SIZE = 100 			# Should be 128 for actual dataset.
+BATCH_SIZE = 100 			# Should be anything that divides into NUM_TRAIN_IMAGES
 EVAL_BATCH_SIZE = NUM_VAL_IMAGES
-EVAL_FREQUENCY = 25			# Subject to change...
+EVAL_FREQUENCY = 100			# Subject to change...
 IMAGE_SIZE = 128
 DEPTH = 64 				# Used to parameterize the depth of each output layer.
 FINAL_DEPTH = 2 			# The final depth should always be 2.
 epsilon = 1e-3
-ALPHA = 1.0/300				# Weight of classification loss
+ALPHA = 5				# Weight of classification loss
 NUM_CLASSES = 100			# Number of classes for classification
 IMAGES_DIR = 'data/images/' 		# Relative or absolute path to directory where images are.
                  			# IMAGES_DIR should have 3 subdirectories: train, val, test
-CKPT_DIR = './new_ckpt_dir'
-NUM_EPOCHS = 1
+CKPT_DIR = './ckpt_dir'
+NUM_EPOCHS = 10
 AB_MAX = 127				# For scaling a and b color channel values to between 0 and 1.
 AB_MIN = -128
+UV_MAX = 1
+UV_MIN = -1
 TEST_STD_DEV = .05
+LEARNING_RATE = .000001
+RHO = .95
 
 def read_scaled_color_image_Lab(filename):
 	# Read image, cut off alpha channel, only keep rgb.
 	rgb = io.imread(filename)[:,:,:3]
 	rgb = np.array(skimage.img_as_float(rgb))
-	lab = color.rgb2lab(rgb)#.astype(np.float32)
+	lab = color.rgb2lab(rgb)
 	# rescale a and b so that they are in the range (0,1) of the sigmoid function
+	lab[:,:,0] = lab[:,:,0]/100.0 - 0.5	
 	lab[:,:,1] = (lab[:,:,1]-AB_MIN)/(AB_MAX - AB_MIN)
 	lab[:,:,2] = (lab[:,:,2]-AB_MIN)/(AB_MAX - AB_MIN)
-	assert(np.max(lab[:,:,1:]) <= 1)
+	# Scale L to be between -1 and 1.
+	
+	assert(np.min(lab[:,:,0]) >= -1)
+	assert(np.max(lab) <= 1)
 	assert(np.min(lab[:,:,1:]) >= 0)
 	return lab
 
@@ -376,7 +384,6 @@ def main(trainNetwork, inputFilename, outputFilename):
 
 
 	def model(data, train=False):
-		data = data - 50
 		# Low level feature network.
 		ll1 = tf.nn.conv2d(data, ll1_weights, [1, ll1_stride, ll1_stride, 1], padding='SAME')
 		ll1 = tf.nn.relu(batch_norm(ll1 + ll1_biases,train))
@@ -477,8 +484,12 @@ def main(trainNetwork, inputFilename, outputFilename):
 	# Use the model to get logits.
 	train_color_logits, train_classify_logits = model(train_data_node, train=True)
 	# Use mean squared error for loss for colorization network and cross-entropy loss in classification network.
+	color_loss = tf.reduce_sum(tf.square(train_colors_node - train_color_logits))
+	class_loss = ALPHA * tf.reduce_sum(tf.nn.softmax_cross_entropy_with_logits(train_classify_logits, train_class_node))
+	
 	loss = tf.reduce_sum(tf.square(train_colors_node - train_color_logits)) + ALPHA * tf.reduce_sum(tf.nn.softmax_cross_entropy_with_logits(train_classify_logits, train_class_node))
-	optimizer = tf.train.AdadeltaOptimizer(learning_rate=.00001, rho=.90).minimize(loss)
+
+	optimizer = tf.train.AdadeltaOptimizer(learning_rate=LEARNING_RATE, rho=RHO).minimize(loss)
 
 	# Commented out because it's not actually used... should remove?
 	# train_prediction = tf.nn.softmax(train_classify_logits)
@@ -501,9 +512,6 @@ def main(trainNetwork, inputFilename, outputFilename):
 		print('Restoring variables from: %s' % ckpt.model_checkpoint_path)
 		saver.restore(sess, ckpt.model_checkpoint_path)
 	
-	# initialize variables
-	#init = tf.initialize_all_variables()
-	#sess.run(init)
 
 	# Start will be 0 when we first begin, and then it will increment
 	# with each batch, and be saved persistently.
@@ -547,22 +555,31 @@ def main(trainNetwork, inputFilename, outputFilename):
 					filename = train_filenames[file_idx]
 					label = one_hot_from_filename(filename)
 					class_labels[i] = label
+					assert(np.linalg.norm(class_labels[i]) == 1)
 					im = read_scaled_color_image_Lab(train_dir + filename)
 					im_bw = im[:,:,0].reshape((-1,IMAGE_SIZE,IMAGE_SIZE,1))
 					im_c = im[:,:,1:].reshape((-1,IMAGE_SIZE,IMAGE_SIZE,2))
 					bw_images[i] = im_bw
 					color_features[i] = im_c
 
+				# Downsample a and b to be the same size as the expected output of the last training layer.
+				# Use as the training labels.
 				y_downsample = tf.image.resize_nearest_neighbor(color_features, [IMAGE_SIZE/2, IMAGE_SIZE/2]).eval(session=sess)
+				# All input data should be between -1 and 1.
+				assert(np.max(bw_images) <= 1)
+				assert(np.min(bw_images) >= -1)
+				assert(np.max(y_downsample) <= 1)
+				assert(np.min(y_downsample) >= 0)
 				feed_dict = {train_data_node: bw_images,
 						 train_colors_node: y_downsample,
 						 train_class_node: class_labels}
 
 				# Train the model.
-				_, l = sess.run([optimizer, loss], feed_dict=feed_dict)
+				_, loss_class, loss_color = sess.run([optimizer, class_loss, color_loss], feed_dict=feed_dict)
 				# Update step count and save variables
 				step += 1
-	            		print('\tGlobal step: %d' % step)
+	            		print('\tGlobal step: %d, Epoch: %d' % (step, epoch))
+				print('\t\tcolor loss: %f, class loss: %f' % (loss_color, loss_class))
 				if step%100 == 0:
 					print('Saving variables')
 					saver.save(sess, CKPT_DIR + '/model.ckpt', write_meta_graph=False)
@@ -574,7 +591,7 @@ def main(trainNetwork, inputFilename, outputFilename):
 					eval_predictions = np.array(sess.run([eval_prediction], feed_dict=feed_dict))
 					error = error_rate(eval_predictions, val_color_labels)
 					print('Step: %d' % step)
-					print('Loss: %f' % l)
+					print('Loss: %f' % (loss_color+loss_class))
 					print('Validation error: %f' % error)
 
 		# Ready to test!
@@ -583,7 +600,7 @@ def main(trainNetwork, inputFilename, outputFilename):
 		test_data = np.zeros([NUM_TEST_IMAGES, IMAGE_SIZE, IMAGE_SIZE, 1], dtype=np.float32)
 		test_color_labels = np.zeros([NUM_TEST_IMAGES, IMAGE_SIZE, IMAGE_SIZE, 2], dtype=np.float32)
 		test_filenames = os.listdir(test_dir)
-		for file_idx in xrange(100): #TODO: should change to NUM_TEST_IMAGES
+		for file_idx in xrange(NUM_TEST_IMAGES):
 			filename = test_filenames[file_idx]
 			im = read_scaled_color_image_Lab(val_dir + filename)
 			im_bw = im[:,:,0].reshape((-1,IMAGE_SIZE,IMAGE_SIZE,1))
@@ -594,58 +611,48 @@ def main(trainNetwork, inputFilename, outputFilename):
 		test_predictions = np.array(sess.run([eval_prediction], feed_dict=feed_dict))
 		test_error = error_rate(test_predictions, test_color_labels)
 		print 'Test error: %f' % test_error
-        	print 'Saving'
-		saver.save(sess, CKPT_DIR + '/model.ckpt', write_meta_graph=False)
+
+		for image_idx in xrange(NUM_TEST_IMAGES):
+			im = np.zeros([IMAGE_SIZE, IMAGE_SIZE, 3])
+			resultFileName = ('test_results/result_image_%d.png' % image_idx)
+			res = test_predictions[0, image_idx] * 1.0 * (AB_MAX - AB_MIN) + AB_MIN
+			im[:,:,1:] = res
+			im[:,:,0] = (np.squeeze(test_data[image_idx])) * 50.0 + 50.0
+			
+			rgb = color.lab2rgb(im)
+			io.imsave(resultFileName, rgb)
 		'''test_im = np.zeros([IMAGE_SIZE, IMAGE_SIZE, 3], dtype=np.float32)
 		print test_data.shape
 		test_im[:,:,0] = np.squeeze(test_data[0]/255.0)
 		test_im[:,:,1:] = test_predictions[0,0]
 		io.imsave('output.png', color.lab2rgb(test_im))
 		'''
-		# Evaluate input image and colorize it.
-		im = read_scaled_color_image_Lab(inputFilename)
 
-		np.set_printoptions(precision=3, suppress=True)
-		print('Original image')
-		print(im[:,:,0])
-		print('A component')
-		print(im[:,:,1])
-		im_bw = im[:,:,0].reshape((1,IMAGE_SIZE,IMAGE_SIZE,1))
-		# print(np.min(im_bw), np.max(im_bw))
-                feed_dict = {test_input_image: im_bw}
-		res = np.array(sess.run(test_prediction, feed_dict = feed_dict))
-		res = res * 1.0 * (AB_MAX - AB_MIN) + AB_MIN
-		im[:,:,1:] = res
-		print('\nNew A component')
-		print(im[:,:,1])
-		print(np.min(im[:,:,1:]))
-		print(np.max(im[:,:,1:]))
-		rgb = color.lab2rgb(im)
-		io.imsave(outputFilename, rgb)
-
-
-	else:
-		# Evaluate input image and colorize it.
-		im = read_scaled_color_image_Lab(inputFilename)
-
-		np.set_printoptions(precision=3, suppress=True)
-		print('Original image')
-		print(im[:,:,0])
-		print('A component')
-		print(im[:,:,1])
-		im_bw = im[:,:,0].reshape((1,IMAGE_SIZE,IMAGE_SIZE,1))
-		print(np.min(im_bw), np.max(im_bw))
-                feed_dict = {test_input_image: im_bw}
-		res = np.array(sess.run(test_prediction, feed_dict = feed_dict))
-		res = res * 1.0 * (AB_MAX - AB_MIN) + AB_MIN
-		im[:,:,1:] = res
-		print('\nNew A component')
-		print(im[:,:,1])
-		print(np.min(im[:,:,1:]))
-		print(np.max(im[:,:,1:]))
-		rgb = color.lab2rgb(im)
-		# rgb = skimage.img_as_ubyte(rgb)
-		io.imsave(outputFilename, rgb)
+	
+	# Evaluate input image and colorize it.
+	im = read_scaled_color_image_Lab(inputFilename)
+	np.set_printoptions(precision=3, suppress=True)
+	print('Original image')
+	print(im[:,:,0])
+	print('A component')
+	print(im[:,:,1])
+	im_bw = im[:,:,0].reshape((1,IMAGE_SIZE,IMAGE_SIZE,1))
+	# print(np.min(im_bw), np.max(im_bw))
+        feed_dict = {test_input_image: im_bw}
+	res = np.array(sess.run(test_prediction, feed_dict = feed_dict))
+	res = res * 1.0 * (AB_MAX - AB_MIN) + AB_MIN
+	im[:,:,1:] = im[:,:,1:] * 1.0 * (AB_MAX - AB_MIN) + AB_MIN
+	im[:,:,0] = (im[:,:,0]) * 50.0 + 50.0
+	io.imsave('test_conversion.png', color.lab2rgb(im))
+	im[:,:,1:] = res
+	print('\nNew A component')
+	print(im[:,:,1])
+	print(np.min(im[:,:,0]))
+	print(np.max(im[:,:,0]))
+	print(np.min(im[:,:,1:]))
+	print(np.max(im[:,:,1:]))
+	rgb = color.lab2rgb(im)
+	io.imsave(outputFilename, rgb)
 
 if __name__ == '__main__':
 	train = False
