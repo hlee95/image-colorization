@@ -1,4 +1,7 @@
 #!/bin/bash -e
+
+# Run this file in the data directory, where data has subdirectories images/ and objects/
+
 function getPlaces2 {
     echo "Making image data directory"
     mkdir -p /home/ubuntu/image-colorization/data
@@ -11,7 +14,8 @@ function getPlaces2 {
 
 function flattenDirectories {
     echo "Flattening directories and preserving labels"
-    cd /home/ubuntu/image-colorization/data
+    # cd /home/ubuntu/image-colorization/data
+    cd /Users/hannalee/mit/2016fall/6.819/image-colorization/data
     local count=0
     cd images/train
 
