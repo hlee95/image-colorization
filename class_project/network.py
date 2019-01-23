@@ -78,11 +78,11 @@ def read_scaled_color_image_Lab(filename):
 	rgb = np.array(skimage.img_as_float(rgb))
 	lab = color.rgb2lab(rgb)
 	# rescale a and b so that they are in the range (0,1) of the sigmoid function
-	lab[:,:,0] = lab[:,:,0]/100.0 - 0.5	
+	lab[:,:,0] = lab[:,:,0]/100.0 - 0.5
 	lab[:,:,1] = (lab[:,:,1]-AB_MIN)/(AB_MAX - AB_MIN)
 	lab[:,:,2] = (lab[:,:,2]-AB_MIN)/(AB_MAX - AB_MIN)
 	# Scale L to be between -1 and 1.
-	
+
 	assert(np.min(lab[:,:,0]) >= -1)
 	assert(np.max(lab) <= 1)
 	assert(np.min(lab[:,:,1:]) >= 0)
@@ -230,7 +230,7 @@ def main(trainNetwork, inputFilename, outputFilename):
 	# First fully connected layer, outputs 8*DEPTH.
 	g5_num_hidden = 8*DEPTH
 	g5_stddev = get_stddev(g4_feat_map_size, g4_depth)
-	
+
 	# Second fully connected layer.
 	g6_num_hidden = 4*DEPTH
 	g6_stddev = 1.0 / math.sqrt(g5_num_hidden)
@@ -486,7 +486,7 @@ def main(trainNetwork, inputFilename, outputFilename):
 	# Use mean squared error for loss for colorization network and cross-entropy loss in classification network.
 	color_loss = tf.reduce_sum(tf.square(train_colors_node - train_color_logits))
 	class_loss = ALPHA * tf.reduce_sum(tf.nn.softmax_cross_entropy_with_logits(train_classify_logits, train_class_node))
-	
+
 	loss = tf.reduce_sum(tf.square(train_colors_node - train_color_logits)) + ALPHA * tf.reduce_sum(tf.nn.softmax_cross_entropy_with_logits(train_classify_logits, train_class_node))
 
 	optimizer = tf.train.AdadeltaOptimizer(learning_rate=LEARNING_RATE, rho=RHO).minimize(loss)
@@ -511,7 +511,7 @@ def main(trainNetwork, inputFilename, outputFilename):
 	if ckpt and ckpt.model_checkpoint_path:
 		print('Restoring variables from: %s' % ckpt.model_checkpoint_path)
 		saver.restore(sess, ckpt.model_checkpoint_path)
-	
+
 
 	# Start will be 0 when we first begin, and then it will increment
 	# with each batch, and be saved persistently.
@@ -618,7 +618,7 @@ def main(trainNetwork, inputFilename, outputFilename):
 			res = test_predictions[0, image_idx] * 1.0 * (AB_MAX - AB_MIN) + AB_MIN
 			im[:,:,1:] = res
 			im[:,:,0] = (np.squeeze(test_data[image_idx])) * 50.0 + 50.0
-			
+
 			rgb = color.lab2rgb(im)
 			io.imsave(resultFileName, rgb)
 		'''test_im = np.zeros([IMAGE_SIZE, IMAGE_SIZE, 3], dtype=np.float32)
@@ -628,7 +628,7 @@ def main(trainNetwork, inputFilename, outputFilename):
 		io.imsave('output.png', color.lab2rgb(test_im))
 		'''
 
-	
+
 	# Evaluate input image and colorize it.
 	im = read_scaled_color_image_Lab(inputFilename)
 	np.set_printoptions(precision=3, suppress=True)
