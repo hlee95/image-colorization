@@ -3,3 +3,4 @@ sandbox/mnist_copy/ckpt_dir/
 sandbox/mnist_copy/ckpt_dir/*
 ignore/
 data/
+*.pyc
