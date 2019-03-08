@@ -2,71 +2,41 @@
 The main image colorization model.
 """
 
-import math
-import numpy as np
 import tensorflow as tf
-
 from tensorflow.keras import Model
 from tensorflow.keras import layers
+tf.logging.set_verbosity(tf.logging.ERROR)
 
 from constants import *
 
-class ImageColorization(Model):
-  def __init__(self):
-    super(ImageColorization).__init__(name="image_colorization")
+class ImageColorization():
 
-    # Save the constants that were passed in.
-    self.c = ImageColorizationConstants()
+    def __init__(self):
+        inputs = layers.Input(shape=(IMAGE_SIZE, IMAGE_SIZE, 1))
 
-    # Define all layers.
-    self.ll1 = layers.Conv2D(self.c.depth, self.c.conv_kernel_size, strides=(2,2), input_shape=(self.c.image_size, self.c.image_size, 1))
-    self.ll2 = layers.Conv2D(2 * self.c.depth, self.c.conv_kernel_size, strides=(1,1))
+        ll1 = layers.Conv2D(DEPTH, CONV_KERNEL_SIZE, strides=(2, 2), padding='same', activation='relu')(inputs)
+        ll2 = layers.Conv2D(2 * DEPTH, CONV_KERNEL_SIZE, strides=(1, 1), padding='same', activation='relu')(ll1)
+        ll3 = layers.Conv2D(2 * DEPTH, CONV_KERNEL_SIZE, strides=(2, 2), padding='same', activation='relu')(ll2)
+        ll4 = layers.Conv2D(4 * DEPTH, CONV_KERNEL_SIZE, strides=(1, 1), padding='same', activation='relu')(ll3)
 
-  def call(self, inputs):
-    # Forward pass, use layers.
-    # The only complicated part is the fusion layer.
-    low_level_features = self.ll1(inputs)
-    # ...
-    mid_level_features = self.ml1(low_level_features)
-    global_features = self.g1(low_level_features)
-    fusion = None # Reshape mid_level_featureus and global_features together.
+        gl1 = layers.Conv2D(4 * DEPTH, CONV_KERNEL_SIZE, strides=(2, 2), padding='same', activation='relu')(ll4)
+        gl2 = layers.Conv2D(4 * DEPTH, CONV_KERNEL_SIZE, strides=(1, 1), padding='same', activation='relu')(gl1)
+        gl3 = layers.Flatten()(gl2)
+        gl4 = layers.Dense(512, activation='relu')(gl3)
+        gl5 = layers.Dense(256, activation='relu')(gl4)
+        gl6 = layers.RepeatVector(8*8)(gl5)
+        gl7 = layers.Reshape([8,8,256])(gl6)
 
-    output = self.c1(fusion)
-    upsample = None # Upsample result of c2.
-    output = self.c3(upsample)
-    output = self.c4(output)
-    # TODO: also need to return the classify logis, in addition to the color logits.
-    return output
+        ml1 = layers.Conv2D(4 * DEPTH, CONV_KERNEL_SIZE, strides=(1, 1), padding='same', activation='relu')(ll4)
 
-  def compute_output_shape(self, input_shape):
-    # Return a tf.TensorShape representing the output shape.
-    pass
+        fusionl = layers.Concatenate(axis=3)([gl7, ml1])
 
-def color_classify_loss(truth, predictions):
-  """
-  Computes the loss given the truth and the predictions.
-  Both truth and predictions are the concatanation of the color logits
-  and the classify logits.
+        cl1 = layers.Conv2D(2 * DEPTH, CONV_KERNEL_SIZE, strides=(1, 1), padding='same', activation='relu')(fusionl)
+        cl2 = layers.UpSampling2D(size=(2, 2), interpolation='nearest')(cl1)
+        cl3 = layers.Conv2D(DEPTH/2, CONV_KERNEL_SIZE, strides=(1, 1), padding='same', activation='relu')(cl2)
+        cl4 = layers.Conv2D(2, CONV_KERNEL_SIZE, strides=(1, 1), padding='same', activation='sigmoid')(cl3)
+        cl5 = layers.UpSampling2D(size=(2, 2), interpolation='nearest', name='colorization_output')(cl4)
 
-  For colors, the loss is mean squared error.
-  For classification, the loss is cross-entropy loss.
-  """
-  color_truth = truth[...]
-  color_predictions = predictions[...]
-  color_loss = tf.reduce_sum(tf.square(color_truth - color_predictions))
+        classificationl = layers.Dense(NUM_CLASSES, name='classification_output')(gl5)
 
-  classify_truth = truth[...]
-  classify_predictions = predictions[...]
-  classify_loss = ALPHA * tf.reduce_sum(tf.nn.softmax_cross_entropy_with_logits(classify_truth, classify_predictions))
-
-  # Combine to form overall loss.
-  return color_loss + classify_loss
-
-
-class ImageColorizationConstants(object):
-  def __init__(self):
-    self.depth = 64
-    self.image_size = 128
-    self.conv_kernel_size = 3
-
-
+        self.model = Model(inputs = inputs, outputs = [cl5, classificationl])

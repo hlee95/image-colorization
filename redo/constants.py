@@ -1,13 +1,19 @@
-IMAGES_DIR = "fake"
+IMAGES_DIR = "../data"
 
-DEPTH = 64 # Used to parameterize the depth of each output layer.
-NUM_TRAIN_IMAGES = 100000 # True value is 100000, change to train on fewer.
-NUM_VAL_IMAGES = 1000     # Should be 10,000 for actual dataset.
-NUM_TEST_IMAGES = NUM_VAL_IMAGES      # Should be 10,000 for actual dataset.
-NUM_CLASSES = 100
+# Dataset parameters
+# dataset used is CIFAR-10 from https://www.cs.toronto.edu/~kriz/cifar.html
+# change NUM_CLASSES and IMAGE_SIZE if using different dataset
+IMAGE_SIZE = 32
+NUM_CLASSES = 10
 
-NUM_EPOCHS = 30
+# Model parameters
+DEPTH = 64  # Used to parameterize the depth of each output layer.
+CONV_KERNEL_SIZE = 3
+
+# Training/inference parameters
+NUM_TRAIN_IMAGES = 100 
+NUM_VAL_IMAGES = 100
+NUM_TEST_IMAGES = 100
+NUM_EPOCHS = 1
 BATCH_SIZE = 32
-TRAIN_DATASET_REPEAT_FACTOR = 100 # Not sure about this...
 LR = 1e-5
-IMAGE_SIZE = 128

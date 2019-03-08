@@ -1,41 +1,36 @@
-import math
-import numpy as np
 import tensorflow as tf
 
+from image_util import ImageUtil
 from model import ImageColorization
-from model import color_classify_loss
 from data_loader import ImageDataLoader
 from constants import *
 
+
 def main():
-  # TODO: create a tf session.
-  image_util = ImageUtil()
-  dataloader = ImageDataLoader(IMAGES_DIR, image_util, sess)
+    # TODO: create a tf session.
+    sess = tf.Session()
+    image_util = ImageUtil()
+    dataloader = ImageDataLoader(IMAGES_DIR, image_util)
 
-  train_dataset = dataloader.get_train_datset()
-  val_dataset = dataloader.get_val_dataset()
-  test_dataset = dataloader.get_test_dataset()
+    train_dataset = dataloader.get_dataset('train')
+    val_dataset = dataloader.get_dataset('val')
+    test_dataset = dataloader.get_dataset('test')
 
-  model = ImageColorization()
-  model.compile(optimizer=tf.train.AdamOptimizer(LR),
-                loss=color_classify_loss)
+    model = ImageColorization().model
+    model.compile(optimizer=tf.train.AdamOptimizer(),
+                  loss={'colorization_output': 'mean_squared_error', 'classification_output': 'categorical_crossentropy'},
+                loss_weights={'colorization_output': 1., 'classification_output': 1./300})
 
-  # Train. TODO: put this in a loop.
-  model.fit(train_dataset, epochs=NUM_EPOCHS, steps_per_epoch=30)
-  # Train with val data (need this?)
-  model.fit(train_dataset, epochs=NUM_EPOCHS, steps_per_epoch=30, validation_data=val_dataset)
+    print 'Starting training'
+    model.fit(train_dataset['greyscale'],
+        {'colorization_output': train_dataset['color'], 'classification_output': train_dataset['class']},
+        epochs=NUM_EPOCHS, steps_per_epoch=30)
+    print 'Finished training'
 
-  # Test it out!
-  results = model.predict(test_dataset)
-  print(results.shape)
-  # Need to upsample the results and only take the images part not the classified labels part.
-  upsampled_results = tf.image.resize_nearest_neighbor(...)
-  image_util.save_result_images(upsampled_results[only take the image part])
+    results = model.predict(test_dataset['greyscale'])
+    #image_util.save_result_images(upsampled_results[only take the image part])
 
 
 if __name__ == "__main__":
-  # Parse arguments (such as the image dir?)
-
-  main()
-
-  print "\nDone."
+    main()
+    print 'Done.'
