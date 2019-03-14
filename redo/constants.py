@@ -11,9 +11,9 @@ DEPTH = 64  # Used to parameterize the depth of each output layer.
 CONV_KERNEL_SIZE = 3
 
 # Training/inference parameters
-NUM_TRAIN_IMAGES = 100 
+NUM_TRAIN_IMAGES = 10000
 NUM_VAL_IMAGES = 100
 NUM_TEST_IMAGES = 100
-NUM_EPOCHS = 1
+NUM_EPOCHS = 100
 BATCH_SIZE = 32
 LR = 1e-5

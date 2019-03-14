@@ -23,7 +23,9 @@ class ImageColorization():
         gl2 = layers.Conv2D(4 * DEPTH, CONV_KERNEL_SIZE, strides=(1, 1), padding='same', activation='relu')(gl1)
         gl3 = layers.Flatten()(gl2)
         gl4 = layers.Dense(512, activation='relu')(gl3)
+        gl4 = layers.Dropout(0.5)(gl4)
         gl5 = layers.Dense(256, activation='relu')(gl4)
+        gl5 = layers.Dropout(0.5)(gl5)
         gl6 = layers.RepeatVector(8*8)(gl5)
         gl7 = layers.Reshape([8,8,256])(gl6)
 
@@ -37,6 +39,6 @@ class ImageColorization():
         cl4 = layers.Conv2D(2, CONV_KERNEL_SIZE, strides=(1, 1), padding='same', activation='sigmoid')(cl3)
         cl5 = layers.UpSampling2D(size=(2, 2), interpolation='nearest', name='colorization_output')(cl4)
 
-        classificationl = layers.Dense(NUM_CLASSES, name='classification_output')(gl5)
+        classificationl = layers.Dense(NUM_CLASSES, name='classification_output', activation='softmax')(gl5)
 
         self.model = Model(inputs = inputs, outputs = [cl5, classificationl])
