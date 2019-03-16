@@ -11,7 +11,6 @@ from data_loader import ImageDataLoader
 from constants import *
 
 def main():
-    # TODO: create a tf session.
     sess = tf.Session()
     image_util = ImageUtil()
     dataloader = ImageDataLoader(IMAGES_DIR, image_util)

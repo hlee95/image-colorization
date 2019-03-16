@@ -23,7 +23,7 @@ class ImageDataLoader(object):
         class_labels = np.zeros([num_images, NUM_CLASSES])
         image_dir = os.path.join(self.root_image_dir, dataset_type)
         filenames = [filename for filename in os.listdir(image_dir) if filename.endswith('.png')]
-        # Randomize order of images are read.
+        # Randomize order that images are read.
         training_images_index = np.random.permutation(num_images)
         for i in xrange(num_images):
             file_index = training_images_index[i]

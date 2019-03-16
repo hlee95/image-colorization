@@ -27,7 +27,7 @@ class ImageColorization():
         gl5 = layers.Dense(256, activation='relu')(gl4)
         gl5 = layers.Dropout(0.5)(gl5)
         gl6 = layers.RepeatVector(8*8)(gl5)
-        gl7 = layers.Reshape([8,8,256])(gl6)
+        gl7 = layers.Reshape([IMAGE_SIZE/4, IMAGE_SIZE/4 ,256])(gl6)
 
         ml1 = layers.Conv2D(4 * DEPTH, CONV_KERNEL_SIZE, strides=(1, 1), padding='same', activation='relu')(ll4)
 
